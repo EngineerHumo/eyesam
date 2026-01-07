@@ -173,6 +173,7 @@ def collate_fn(
         metadata=BatchedVideoMetaData(
             unique_objects_identifier=objects_identifier,
             frame_orig_size=frame_orig_size,
+            batch_size=[T],
         ),
         dict_key=dict_key,
         batch_size=[T],
