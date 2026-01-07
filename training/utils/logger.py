@@ -18,6 +18,7 @@ from iopath.common.file_io import g_pathmgr
 from numpy import ndarray
 from torch import Tensor
 from torch.utils.tensorboard import SummaryWriter
+from visdom import Visdom
 
 from training.utils.train_utils import get_machine_local_and_dist_rank, makedir
 
@@ -29,6 +30,17 @@ def make_tensorboard_logger(log_dir: str, **writer_kwargs: Any):
     summary_writer_method = SummaryWriter
     return TensorBoardLogger(
         path=log_dir, summary_writer_method=summary_writer_method, **writer_kwargs
+    )
+
+
+def make_visdom_logger(
+    env: str = "main",
+    server: str = "http://localhost",
+    port: int = 8097,
+    raise_exceptions: bool = False,
+):
+    return VisdomLogger(
+        env=env, server=server, port=port, raise_exceptions=raise_exceptions
     )
 
 
@@ -149,6 +161,60 @@ class TensorBoardLogger(TensorBoardWriterWrapper):
         self._writer.add_hparams(hparams, meters)
 
 
+class VisdomLogger:
+    """
+    A simple logger for Visdom images.
+    """
+
+    def __init__(
+        self,
+        env: str = "main",
+        server: str = "http://localhost",
+        port: int = 8097,
+        raise_exceptions: bool = False,
+    ):
+        self._viz = Visdom(
+            server=server, port=port, env=env, raise_exceptions=raise_exceptions
+        )
+        self._env = env
+        self._server = server
+        self._port = port
+        logging.info(
+            "Visdom logger instantiated (env=%s, server=%s, port=%s).",
+            env,
+            server,
+            port,
+        )
+
+    def log_image(self, name: str, image: Tensor, step: int, caption: str = None):
+        self._viz.image(
+            image,
+            win=name,
+            opts={
+                "title": name,
+                "caption": caption or f"step={step}",
+            },
+        )
+
+    def log_images(
+        self,
+        name: str,
+        images: Tensor,
+        step: int,
+        nrow: int = 3,
+        caption: str = None,
+    ):
+        self._viz.images(
+            images,
+            win=name,
+            nrow=nrow,
+            opts={
+                "title": name,
+                "caption": caption or f"step={step}",
+            },
+        )
+
+
 class Logger:
     """
     A logger class that can interface with multiple loggers. It now supports tensorboard only for simplicity, but you can extend it with your own logger.
@@ -159,6 +225,11 @@ class Logger:
         tb_config = logging_conf.tensorboard_writer
         tb_should_log = tb_config and tb_config.pop("should_log", True)
         self.tb_logger = instantiate(tb_config) if tb_should_log else None
+        visdom_config = logging_conf.visdom_writer
+        visdom_should_log = visdom_config and visdom_config.pop("should_log", True)
+        self.visdom_logger = (
+            instantiate(visdom_config) if visdom_should_log else None
+        )
 
     def log_dict(self, payload: Dict[str, Scalar], step: int) -> None:
         if self.tb_logger:
@@ -173,6 +244,23 @@ class Logger:
     ) -> None:
         if self.tb_logger:
             self.tb_logger.log_hparams(hparams, meters)
+
+    def log_image(self, name: str, image: Tensor, step: int, caption: str = None):
+        if self.visdom_logger:
+            self.visdom_logger.log_image(name, image, step, caption=caption)
+
+    def log_images(
+        self,
+        name: str,
+        images: Tensor,
+        step: int,
+        nrow: int = 3,
+        caption: str = None,
+    ):
+        if self.visdom_logger:
+            self.visdom_logger.log_images(
+                name, images, step, nrow=nrow, caption=caption
+            )
 
 
 # cache the opened file object, so that different calls to `setup_logger`

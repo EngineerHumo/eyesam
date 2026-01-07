@@ -30,6 +30,7 @@ REQUIRED_PACKAGES = [
     "iopath>=0.1.10",
     "pillow>=10.4.0",
     "SimpleITK>=2.4.0",
+    "visdom>=0.2.4",
 ]
 
 EXTRA_PACKAGES = {

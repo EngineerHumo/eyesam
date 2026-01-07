@@ -130,10 +130,13 @@ class LoggingConf:
     log_dir: str
     log_freq: int  # In iterations
     tensorboard_writer: Any
+    visdom_writer: Any = None
     log_level_primary: str = "INFO"
     log_level_secondary: str = "ERROR"
     log_scalar_frequency: int = 100
     log_visual_frequency: int = 100
+    visdom_image_mean: Optional[List[float]] = None
+    visdom_image_std: Optional[List[float]] = None
     scalar_keys_to_log: Optional[Dict[str, Any]] = None
     log_batch_stats: bool = False
 
@@ -463,6 +466,7 @@ class Trainer:
         loss_str = f"Losses/{phase}_{key}_loss"
 
         loss_log_str = os.path.join("Step_Losses", loss_str)
+        step = self.steps[phase]
 
         # loss contains multiple sub-components we wish to log
         step_losses = {}
@@ -474,12 +478,19 @@ class Trainer:
                 loss, loss_log_str, self.steps[phase]
             )
 
-        if self.steps[phase] % self.logging_conf.log_scalar_frequency == 0:
+        if step % self.logging_conf.log_scalar_frequency == 0:
             self.logger.log(
                 loss_log_str,
                 loss,
-                self.steps[phase],
+                step,
             )
+
+        if (
+            self.distributed_rank == 0
+            and self.logging_conf.log_visual_frequency > 0
+            and step % self.logging_conf.log_visual_frequency == 0
+        ):
+            self._log_visuals(batch, outputs, phase, step)
 
         self.steps[phase] += 1
 
@@ -495,6 +506,64 @@ class Trainer:
                     )
 
         return ret_tuple
+
+    def _log_visuals(
+        self,
+        batch: BatchedVideoDatapoint,
+        outputs: List[Dict[str, torch.Tensor]],
+        phase: str,
+        step: int,
+    ):
+        if not outputs:
+            return
+        frame_idx = 0
+        video_idx = 0
+        obj_to_frame_idx = batch.obj_to_frame_idx[frame_idx]
+        video_mask = obj_to_frame_idx[:, 1] == video_idx
+        obj_indices = torch.where(video_mask)[0]
+        if obj_indices.numel() == 0:
+            obj_index = 0
+        else:
+            obj_index = obj_indices[0].item()
+
+        img = batch.img_batch[frame_idx, video_idx].detach().float().cpu()
+        img = self._denormalize_image(img)
+        img = img.clamp(0.0, 1.0)
+
+        frame_outputs = outputs[frame_idx]
+        pred_masks = frame_outputs.get("pred_masks_high_res", None)
+        if pred_masks is None:
+            pred_masks = frame_outputs.get("pred_masks", None)
+        if pred_masks is None:
+            return
+        pred_mask = torch.sigmoid(pred_masks[obj_index]).detach().float().cpu()
+        pred_mask = pred_mask.clamp(0.0, 1.0)
+
+        gt_mask = (
+            batch.masks[frame_idx, obj_index].detach().float().cpu().unsqueeze(0)
+        )
+        gt_mask = gt_mask.clamp(0.0, 1.0)
+
+        pred_vis = pred_mask.repeat(3, 1, 1)
+        gt_vis = gt_mask.repeat(3, 1, 1)
+        images = torch.stack([img, pred_vis, gt_vis], dim=0)
+
+        self.logger.log_images(
+            f"{phase}/samples",
+            images,
+            step,
+            nrow=3,
+            caption="image | pred | gt",
+        )
+
+    def _denormalize_image(self, image: torch.Tensor) -> torch.Tensor:
+        mean = self.logging_conf.visdom_image_mean
+        std = self.logging_conf.visdom_image_std
+        if mean is None or std is None:
+            return image
+        mean_tensor = torch.tensor(mean, dtype=image.dtype).view(-1, 1, 1)
+        std_tensor = torch.tensor(std, dtype=image.dtype).view(-1, 1, 1)
+        return image * std_tensor + mean_tensor
 
     def run(self):
         assert self.mode in ["train", "train_only", "val"]
