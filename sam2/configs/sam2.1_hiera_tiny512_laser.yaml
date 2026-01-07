@@ -4,7 +4,7 @@ scratch:
   resolution: 512
   train_video_batch_size: 2 # increase batch size based on your computing
   num_train_workers: 15
-  num_frames: 8
+  num_frames: 1
   max_num_objects: 3
   base_lr: 5.0e-5
   vision_lr: 3.0e-05
@@ -185,13 +185,13 @@ trainer:
     prob_to_use_box_input_for_train: 1.0 
     prob_to_use_box_input_for_eval: 0.0
     prob_to_sample_from_gt_for_train: 0.1  # with a small prob, sampling correction points from GT mask instead of prediction errors
-    num_frames_to_correct_for_train: 2  # iteratively sample on random 1~2 frames (always include the first frame)
+    num_frames_to_correct_for_train: 1  # single-frame data, only correct the first frame
     num_frames_to_correct_for_eval: 1  # only iteratively sample on first frame
-    rand_frames_to_correct_for_train: True  # random #init-cond-frame ~ 2
+    rand_frames_to_correct_for_train: False  # single-frame data, no random correction frames
     add_all_frames_to_correct_as_cond: True  # when a frame receives a correction click, it becomes a conditioning frame (even if it's not initially a conditioning frame)
-    # maximum 2 initial conditioning frames
-    num_init_cond_frames_for_train: 2
-    rand_init_cond_frames_for_train: True  # random 1~2
+    # maximum 1 initial conditioning frame
+    num_init_cond_frames_for_train: 1
+    rand_init_cond_frames_for_train: False  # single-frame data, no random conditioning frames
     num_correction_pt_per_frame: 7
     use_act_ckpt_iterative_pt_sampling: false
     
@@ -338,5 +338,4 @@ submitit:
   timeout_hour: 24
   name: null
   port_range: [10000, 65000]
-
 
