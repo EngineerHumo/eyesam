@@ -47,13 +47,14 @@ logging.basicConfig(
 
 
 def load_image_color(image_path: Path) -> np.ndarray:
-    """Load an image as an RGB uint8 numpy array."""
+    """Load an image as an RGB uint8 numpy array in CHW layout."""
     with Image.open(image_path) as img:
         if img.mode != "RGB":
             img = img.convert("RGB")
         image_np = np.array(img)
 
-    return image_np.astype(np.uint8)
+    image_np = image_np.astype(np.uint8)
+    return np.transpose(image_np, (2, 0, 1))
 
 
 def load_mask_grayscale(mask_path: Path) -> np.ndarray:
@@ -69,9 +70,11 @@ def load_mask_grayscale(mask_path: Path) -> np.ndarray:
 
     return mask_np.astype(np.uint8)
 
+    return mask_np.astype(np.uint8)
+
 def validate_pair(image_array: np.ndarray, mask_array: np.ndarray, case_name: str, mask_name: str) -> Tuple[np.ndarray, np.ndarray]:
     """Ensure image and mask shapes match by resizing the mask if needed."""
-    image_shape = image_array.shape[:2]
+    image_shape = image_array.shape[1:3]
     mask_shape = mask_array.shape[:2]
     if image_shape != mask_shape:
         logging.warning(
