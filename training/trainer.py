@@ -12,7 +12,7 @@ import os
 import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 import numpy as np
 
@@ -483,6 +483,13 @@ class Trainer:
                 loss, loss_log_str, self.steps[phase]
             )
 
+        if phase == Phase.VAL:
+            dice_metrics = self._compute_val_dice_metrics(outputs, targets)
+            if dice_metrics is not None:
+                first_click_dice, final_iter_dice = dice_metrics
+                step_losses["Dice/val_first_click"] = first_click_dice
+                step_losses["Dice/val_final_iter"] = final_iter_dice
+
         if step % self.logging_conf.log_scalar_frequency == 0:
             self.logger.log(
                 loss_log_str,
@@ -516,6 +523,43 @@ class Trainer:
                     )
 
         return ret_tuple
+
+    def _compute_val_dice_metrics(
+        self, outputs: List[Dict[str, torch.Tensor]], targets: torch.Tensor
+    ) -> Optional[Tuple[torch.Tensor, torch.Tensor]]:
+        if not outputs:
+            return None
+
+        first_dices = []
+        final_dices = []
+        for frame_out, frame_targets in zip(outputs, targets):
+            pred_steps = frame_out.get("multistep_pred_masks_high_res")
+            if pred_steps is None:
+                pred_steps = frame_out.get("multistep_pred_masks")
+            if pred_steps is None or pred_steps.dim() != 4:
+                continue
+
+            frame_targets = frame_targets.float()
+            first_pred = pred_steps[:, 0]
+            final_pred = pred_steps[:, -1]
+            first_dices.append(self._compute_dice(first_pred, frame_targets))
+            final_dices.append(self._compute_dice(final_pred, frame_targets))
+
+        if not first_dices:
+            return None
+
+        return torch.stack(first_dices).mean(), torch.stack(final_dices).mean()
+
+    def _compute_dice(
+        self, pred_logits: torch.Tensor, target_masks: torch.Tensor
+    ) -> torch.Tensor:
+        pred_probs = pred_logits.sigmoid()
+        pred_flat = pred_probs.flatten(1)
+        target_flat = target_masks.flatten(1)
+        numerator = 2 * (pred_flat * target_flat).sum(-1)
+        denominator = pred_flat.sum(-1) + target_flat.sum(-1)
+        dice = (numerator + 1.0) / (denominator + 1.0)
+        return dice.mean()
 
     def _extract_visual_triplet(
         self,
@@ -583,9 +627,7 @@ class Trainer:
             return False
         if self.logging_conf.log_visual_frequency <= 0:
             return False
-        if self.last_val_visual_epoch != self.epoch:
-            return True
-        return step % self.logging_conf.log_visual_frequency == 0
+        return True
 
     def _save_val_visuals(
         self,
@@ -593,27 +635,79 @@ class Trainer:
         outputs: List[Dict[str, torch.Tensor]],
         step: int,
     ) -> None:
-        triplet = self._extract_visual_triplet(batch, outputs)
-        if triplet is None:
+        if not outputs:
             return
 
-        combined = torch.cat(
-            [triplet["image"], triplet["pred"], triplet["gt"]], dim=2
-        )
-        combined = combined.clamp(0.0, 1.0)
-
         output_dir = os.path.join(
-            self.logging_conf.log_dir, "val_images", f"epoch_{self.epoch}"
+            self.logging_conf.log_dir,
+            "val_images",
+            f"epoch_{self.epoch}",
+            f"step_{step}_{batch.dict_key}",
         )
         makedir(output_dir)
-        output_path = os.path.join(
-            output_dir, f"step_{step}_{batch.dict_key}.png"
-        )
 
-        image_np = (combined.permute(1, 2, 0).numpy() * 255).astype(np.uint8)
-        image = Image.fromarray(image_np)
-        with g_pathmgr.open(output_path, "wb") as f:
-            image.save(f, format="PNG")
+        num_frames = len(outputs)
+        num_videos = batch.img_batch.shape[1]
+        for frame_idx in range(num_frames):
+            obj_to_frame_idx = batch.obj_to_frame_idx[frame_idx]
+            frame_targets = batch.masks[frame_idx].detach().float().cpu().clamp(0.0, 1.0)
+            frame_outputs = outputs[frame_idx]
+            pred_steps = frame_outputs.get("multistep_pred_masks_high_res")
+            if pred_steps is None:
+                pred_steps = frame_outputs.get("multistep_pred_masks")
+            if pred_steps is None:
+                pred_steps = frame_outputs.get("pred_masks_high_res")
+            if pred_steps is None:
+                pred_steps = frame_outputs.get("pred_masks")
+            if pred_steps is None:
+                continue
+            if pred_steps.dim() == 3:
+                pred_steps = pred_steps.unsqueeze(1)
+            if pred_steps.dim() != 4:
+                continue
+
+            pred_steps = pred_steps.detach()
+            for video_idx in range(num_videos):
+                video_mask = obj_to_frame_idx[:, 1] == video_idx
+                obj_indices = torch.where(video_mask)[0]
+                if obj_indices.numel() == 0:
+                    continue
+
+                img = batch.img_batch[frame_idx, video_idx].detach().float().cpu()
+                img = self._denormalize_image(img).clamp(0.0, 1.0)
+
+                for obj_index in obj_indices:
+                    pred_first = pred_steps[obj_index, 0]
+                    pred_final = pred_steps[obj_index, -1]
+                    gt_mask = frame_targets[obj_index].unsqueeze(0)
+
+                    for tag, pred_mask in [
+                        ("first_click", pred_first),
+                        ("final_iter", pred_final),
+                    ]:
+                        pred_vis = torch.sigmoid(pred_mask).float().cpu().clamp(
+                            0.0, 1.0
+                        )
+                        if pred_vis.dim() == 2:
+                            pred_vis = pred_vis.unsqueeze(0)
+                        pred_vis = pred_vis.repeat(3, 1, 1)
+                        gt_vis = gt_mask.repeat(3, 1, 1)
+                        combined = torch.cat([img, pred_vis, gt_vis], dim=2).clamp(
+                            0.0, 1.0
+                        )
+                        output_path = os.path.join(
+                            output_dir,
+                            (
+                                f"frame_{frame_idx}_video_{video_idx}_obj_{int(obj_index)}"
+                                f"_{tag}.png"
+                            ),
+                        )
+                        image_np = (combined.permute(1, 2, 0).numpy() * 255).astype(
+                            np.uint8
+                        )
+                        image = Image.fromarray(image_np)
+                        with g_pathmgr.open(output_path, "wb") as f:
+                            image.save(f, format="PNG")
 
     def _get_synced_average(self, meter: AverageMeter) -> float:
         if not is_dist_avail_and_initialized():
@@ -852,6 +946,15 @@ class Trainer:
         for phase in curr_phases:
             out_dict.update(self._get_trainer_state(phase))
         self._reset_meters(curr_phases)
+        if (
+            "Dice/val_first_click" in out_dict
+            and "Dice/val_final_iter" in out_dict
+        ):
+            logging.info(
+                "Val avg first-click dice: %.6f | avg final-iter dice: %.6f",
+                out_dict["Dice/val_first_click"],
+                out_dict["Dice/val_final_iter"],
+            )
         logging.info(f"Meters: {out_dict}")
         return out_dict
 
