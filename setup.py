@@ -27,6 +27,7 @@ REQUIRED_PACKAGES = [
     "numpy>=2.0.1",
     "tqdm>=4.66.5",
     "hydra-core>=1.3.2",
+    "fvcore>=0.1.5.post20221221",
     "iopath>=0.1.10",
     "pillow>=10.4.0",
     "SimpleITK>=2.4.0",
