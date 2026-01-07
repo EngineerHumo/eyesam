@@ -581,10 +581,10 @@ class Trainer:
     def _should_save_val_visual(self, step: int) -> bool:
         if self.distributed_rank != 0:
             return False
-        if self.last_val_visual_epoch != self.epoch:
-            return True
         if self.logging_conf.log_visual_frequency <= 0:
             return False
+        if self.last_val_visual_epoch != self.epoch:
+            return True
         return step % self.logging_conf.log_visual_frequency == 0
 
     def _save_val_visuals(
