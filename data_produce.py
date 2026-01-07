@@ -27,7 +27,7 @@ Usage example:
         --root /data/Retina_Project \
         --train-output /data/Retina_Project/train_npz \
         --val-output /data/Retina_Project/val_npz \
-        --train-start 1 --val-start 101
+        --train-start 1 --val-start 349
 """
 
 from __future__ import annotations
@@ -46,32 +46,43 @@ logging.basicConfig(
 )
 
 
-def load_image_grayscale(image_path: Path) -> np.ndarray:
-    """Load an image as a single-channel uint8 numpy array."""
+def load_image_color(image_path: Path) -> np.ndarray:
+    """Load an image as an RGB uint8 numpy array."""
     with Image.open(image_path) as img:
-        if img.mode not in ("1", "L", "I;16", "P"):
-            img = img.convert("L")
+        if img.mode != "RGB":
+            img = img.convert("RGB")
         image_np = np.array(img)
-
-    if image_np.ndim == 3:
-        # If conversion still yields multiple channels (e.g., palette), keep first.
-        image_np = image_np[:, :, 0]
 
     return image_np.astype(np.uint8)
 
 
+def load_mask_grayscale(mask_path: Path) -> np.ndarray:
+    """Load a mask as a single-channel uint8 numpy array."""
+    with Image.open(mask_path) as img:
+        if img.mode not in ("1", "L", "I;16", "P"):
+            img = img.convert("L")
+        mask_np = np.array(img)
+
+    if mask_np.ndim == 3:
+        # If conversion still yields multiple channels (e.g., palette), keep first.
+        mask_np = mask_np[:, :, 0]
+
+    return mask_np.astype(np.uint8)
+
 def validate_pair(image_array: np.ndarray, mask_array: np.ndarray, case_name: str, mask_name: str) -> Tuple[np.ndarray, np.ndarray]:
     """Ensure image and mask shapes match by resizing the mask if needed."""
-    if image_array.shape != mask_array.shape:
+    image_shape = image_array.shape[:2]
+    mask_shape = mask_array.shape[:2]
+    if image_shape != mask_shape:
         logging.warning(
             "Shape mismatch for %s/%s: image %s vs mask %s. Resizing mask to match image.",
             case_name,
             mask_name,
-            image_array.shape,
-            mask_array.shape,
+            image_shape,
+            mask_shape,
         )
         mask_image = Image.fromarray(mask_array)
-        mask_image = mask_image.resize((image_array.shape[1], image_array.shape[0]), resample=Image.NEAREST)
+        mask_image = mask_image.resize((image_shape[1], image_shape[0]), resample=Image.NEAREST)
         mask_array = np.array(mask_image, dtype=mask_array.dtype)
     return image_array, mask_array
 
@@ -104,7 +115,7 @@ def process_split(
             continue
 
         try:
-            image_array = load_image_grayscale(image_path)
+            image_array = load_image_color(image_path)
         except Exception as exc:  # pragma: no cover - defensive logging
             logging.error("Failed to load image %s: %s", image_path, exc)
             continue
@@ -116,7 +127,7 @@ def process_split(
 
         for gt_path in gt_files:
             try:
-                mask_array = load_image_grayscale(gt_path)
+                mask_array = load_mask_grayscale(gt_path)
             except Exception as exc:  # pragma: no cover - defensive logging
                 logging.error("Failed to load mask %s: %s", gt_path, exc)
                 continue
@@ -145,7 +156,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--train-output", type=Path, default=None, help="Output directory for training NPZ files.")
     parser.add_argument("--val-output", type=Path, default=None, help="Output directory for validation NPZ files.")
     parser.add_argument("--train-start", type=int, default=1, help="Starting index for training NPZ filenames.")
-    parser.add_argument("--val-start", type=int, default=101, help="Starting index for validation NPZ filenames.")
+    parser.add_argument("--val-start", type=int, default=349, help="Starting index for validation NPZ filenames.")
     return parser.parse_args()
 
 
