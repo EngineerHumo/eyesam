@@ -198,8 +198,15 @@ class NPZRawDataset(VOSRawDataset):
         
         # Extract frames and masks
         frames = npz_data['imgs'] / 255.0
-        # Expand the grayscale images to three channels
-        frames = np.repeat(frames[:, np.newaxis, :, :], 3, axis=1)  # (img_num, 3, H, W)
+        # Expand the grayscale images to three channels, or keep CHW images as-is.
+        if frames.ndim == 3:
+            frames = np.repeat(frames[:, np.newaxis, :, :], 3, axis=1)  # (N, 3, H, W)
+        elif frames.ndim == 4 and frames.shape[1] == 1:
+            frames = np.repeat(frames, 3, axis=1)  # (N, 3, H, W)
+        elif frames.ndim == 4 and frames.shape[1] == 3:
+            pass
+        else:
+            raise ValueError(f"Unsupported imgs shape {frames.shape} in {npz_path}")
         masks = npz_data['gts']
         
         if self.truncate_video > 0:
