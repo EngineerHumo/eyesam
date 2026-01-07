@@ -9,11 +9,11 @@ scratch:
   base_lr: 5.0e-5
   vision_lr: 3.0e-05
   phases_per_epoch: 1
-  num_epochs: 5
+  num_epochs: 300
 
 dataset:
   # PATHS to Dataset
-  folder: /data/Retina_Project  # Root path containing train/ and val/ splits
+  folder: /home/wensheng/gjq_workspace/eyesam/data/Retina_Project  # Root path containing train/ and val/ splits
   multiplier: 1
 
 # Video transforms
@@ -229,7 +229,7 @@ trainer:
               training: true
               video_dataset:
                 _target_: training.dataset.vos_raw_dataset.NPZRawDataset
-                folder: /data/Retina_Project/train_npz # must be absolute path
+                folder: /home/wensheng/gjq_workspace/eyesam/data/Retina_Project/train_npz # must be absolute path
               sampler:
                 _target_: training.dataset.vos_sampler.RandomUniformSampler
                 num_frames: ${scratch.num_frames}
@@ -260,7 +260,7 @@ trainer:
               training: false
               video_dataset:
                 _target_: training.dataset.vos_raw_dataset.NPZRawDataset
-                folder: /data/Retina_Project/val_npz
+                folder: /home/wensheng/gjq_workspace/eyesam/data/Retina_Project/val_npz
               sampler:
                 _target_: training.dataset.vos_sampler.RandomUniformSampler
                 num_frames: ${scratch.num_frames}
@@ -370,7 +370,7 @@ trainer:
 
       state_dict:
         _target_: training.utils.checkpoint_utils.load_checkpoint_and_apply_kernels
-        checkpoint_path: checkpoints/sam2.1_hiera_tiny.pt # PATH to SAM 2.1 checkpoint
+        checkpoint_path: checkpoints/MedSAM2_latest.pt # PATH to SAM 2.1 checkpoint
         ckpt_state_dict_keys: ['model']
 
 launcher:
