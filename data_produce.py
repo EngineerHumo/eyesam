@@ -70,6 +70,7 @@ def load_mask_grayscale(mask_path: Path) -> np.ndarray:
 
     return mask_np.astype(np.uint8)
 
+    return mask_np.astype(np.uint8)
 
 def validate_pair(image_array: np.ndarray, mask_array: np.ndarray, case_name: str, mask_name: str) -> Tuple[np.ndarray, np.ndarray]:
     """Ensure image and mask shapes match by resizing the mask if needed."""
