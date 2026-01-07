@@ -19,6 +19,7 @@ import numpy as np
 import torch
 import torch.distributed as dist
 import torch.nn as nn
+from PIL import Image
 from hydra.utils import instantiate
 from iopath.common.file_io import g_pathmgr
 
@@ -185,6 +186,8 @@ class Trainer:
         distributed = DistributedConf(**distributed or {})
         cuda = CudaConf(**cuda or {})
         self.where = 0.0
+        self.best_val_loss: Optional[float] = None
+        self.last_val_visual_epoch: Optional[int] = None
 
         self._infer_distributed_backend_if_none(distributed, accelerator)
 
@@ -352,6 +355,7 @@ class Trainer:
             "steps": self.steps,
             "time_elapsed": self.time_elapsed_meter.val,
             "best_meter_values": self.best_meter_values,
+            "best_val_loss": self.best_val_loss,
         }
         if self.optim_conf.amp.enabled:
             checkpoint["scaler"] = self.scaler.state_dict()
@@ -443,6 +447,7 @@ class Trainer:
             self.scaler.load_state_dict(checkpoint["scaler"])
 
         self.best_meter_values = checkpoint.get("best_meter_values", {})
+        self.best_val_loss = checkpoint.get("best_val_loss", None)
 
         if "train_dataset" in checkpoint and self.train_dataset is not None:
             self.train_dataset.load_checkpoint_state(checkpoint["train_dataset"])
@@ -492,6 +497,11 @@ class Trainer:
         ):
             self._log_visuals(batch, outputs, phase, step)
 
+        if phase == Phase.VAL and self._should_save_val_visual(step):
+            self._save_val_visuals(batch, outputs, step)
+            if self.last_val_visual_epoch != self.epoch:
+                self.last_val_visual_epoch = self.epoch
+
         self.steps[phase] += 1
 
         ret_tuple = {loss_str: loss}, batch_size, step_losses
@@ -507,15 +517,13 @@ class Trainer:
 
         return ret_tuple
 
-    def _log_visuals(
+    def _extract_visual_triplet(
         self,
         batch: BatchedVideoDatapoint,
         outputs: List[Dict[str, torch.Tensor]],
-        phase: str,
-        step: int,
-    ):
+    ) -> Optional[Dict[str, torch.Tensor]]:
         if not outputs:
-            return
+            return None
         frame_idx = 0
         video_idx = 0
         obj_to_frame_idx = batch.obj_to_frame_idx[frame_idx]
@@ -535,7 +543,7 @@ class Trainer:
         if pred_masks is None:
             pred_masks = frame_outputs.get("pred_masks", None)
         if pred_masks is None:
-            return
+            return None
         pred_mask = torch.sigmoid(pred_masks[obj_index]).detach().float().cpu()
         pred_mask = pred_mask.clamp(0.0, 1.0)
 
@@ -546,7 +554,21 @@ class Trainer:
 
         pred_vis = pred_mask.repeat(3, 1, 1)
         gt_vis = gt_mask.repeat(3, 1, 1)
-        images = torch.stack([img, pred_vis, gt_vis], dim=0)
+        return {"image": img, "pred": pred_vis, "gt": gt_vis}
+
+    def _log_visuals(
+        self,
+        batch: BatchedVideoDatapoint,
+        outputs: List[Dict[str, torch.Tensor]],
+        phase: str,
+        step: int,
+    ):
+        triplet = self._extract_visual_triplet(batch, outputs)
+        if triplet is None:
+            return
+        images = torch.stack(
+            [triplet["image"], triplet["pred"], triplet["gt"]], dim=0
+        )
 
         self.logger.log_images(
             f"{phase}/samples",
@@ -555,6 +577,73 @@ class Trainer:
             nrow=3,
             caption="image | pred | gt",
         )
+
+    def _should_save_val_visual(self, step: int) -> bool:
+        if self.distributed_rank != 0:
+            return False
+        if self.last_val_visual_epoch != self.epoch:
+            return True
+        if self.logging_conf.log_visual_frequency <= 0:
+            return False
+        return step % self.logging_conf.log_visual_frequency == 0
+
+    def _save_val_visuals(
+        self,
+        batch: BatchedVideoDatapoint,
+        outputs: List[Dict[str, torch.Tensor]],
+        step: int,
+    ) -> None:
+        triplet = self._extract_visual_triplet(batch, outputs)
+        if triplet is None:
+            return
+
+        combined = torch.cat(
+            [triplet["image"], triplet["pred"], triplet["gt"]], dim=2
+        )
+        combined = combined.clamp(0.0, 1.0)
+
+        output_dir = os.path.join(
+            self.logging_conf.log_dir, "val_images", f"epoch_{self.epoch}"
+        )
+        makedir(output_dir)
+        output_path = os.path.join(
+            output_dir, f"step_{step}_{batch.dict_key}.png"
+        )
+
+        image_np = (combined.permute(1, 2, 0).numpy() * 255).astype(np.uint8)
+        image = Image.fromarray(image_np)
+        with g_pathmgr.open(output_path, "wb") as f:
+            image.save(f, format="PNG")
+
+    def _get_synced_average(self, meter: AverageMeter) -> float:
+        if not is_dist_avail_and_initialized():
+            return meter.avg
+        if meter.count == 0:
+            return meter.avg
+        tensor = torch.tensor([meter.sum, meter.count], device=self.device)
+        dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
+        total_sum, total_count = tensor.tolist()
+        if total_count == 0:
+            return 0.0
+        return float(total_sum / total_count)
+
+    def _maybe_save_best_val_checkpoint(
+        self, loss_mts: Mapping[str, AverageMeter]
+    ) -> Optional[float]:
+        if not loss_mts:
+            return None
+        loss_values = [self._get_synced_average(meter) for meter in loss_mts.values()]
+        val_loss = float(np.mean(loss_values))
+        if self.best_val_loss is None or val_loss < self.best_val_loss:
+            self.best_val_loss = val_loss
+            self.best_meter_values["best_val_loss"] = val_loss
+            self.save_checkpoint(self.epoch + 1, checkpoint_names=["best"])
+            logging.info(
+                "New best val loss %.6f at epoch %s, saved best checkpoint.",
+                val_loss,
+                self.epoch,
+            )
+        return val_loss
 
     def _denormalize_image(self, image: torch.Tensor) -> torch.Tensor:
         mean = self.logging_conf.visdom_image_mean
@@ -755,6 +844,10 @@ class Trainer:
             out_dict[k] = v.avg
         for k, v in extra_loss_mts.items():
             out_dict[k] = v.avg
+
+        val_loss = self._maybe_save_best_val_checkpoint(loss_mts)
+        if val_loss is not None:
+            out_dict["Losses/val_mean_loss"] = val_loss
 
         for phase in curr_phases:
             out_dict.update(self._get_trainer_state(phase))
