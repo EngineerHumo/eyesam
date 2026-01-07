@@ -52,7 +52,7 @@ class BatchedVideoDatapoint:
     dict_key: str
 
     def pin_memory(self, device=None):
-        return self.apply(torch.Tensor.pin_memory, device=device)
+        return self.apply(lambda tensor: tensor.pin_memory(device=device))
 
     @property
     def num_frames(self) -> int:

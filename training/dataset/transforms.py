@@ -84,7 +84,12 @@ def resize(datapoint, index, size, max_size=None, square=False, v2=False):
             datapoint.frames[index].data, size, antialias=True
         )
     else:
-        datapoint.frames[index].data = F.resize(datapoint.frames[index].data, size)
+        datapoint.frames[index].data = F.resize(
+            datapoint.frames[index].data,
+            size,
+            interpolation=InterpolationMode.BILINEAR,
+            antialias=True,
+        )
 
     new_size = (
         datapoint.frames[index].data.size()[-2:][::-1]
@@ -94,7 +99,12 @@ def resize(datapoint, index, size, max_size=None, square=False, v2=False):
 
     for obj in datapoint.frames[index].objects:
         if obj.segment is not None:
-            obj.segment = F.resize(obj.segment[None, None], size).squeeze()
+            obj.segment = F.resize(
+                obj.segment[None, None],
+                size,
+                interpolation=InterpolationMode.NEAREST,
+                antialias=False,
+            ).squeeze()
 
     h, w = size
     datapoint.frames[index].size = (h, w)
