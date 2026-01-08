@@ -11,12 +11,36 @@ Mostly copy-paste from torchvision references.
 """
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Union
+import dataclasses
+import importlib.util
+from typing import List, Tuple, Union
 
 import torch
 
 from PIL import Image as PILImage
-from tensordict import tensorclass
+if importlib.util.find_spec("tensordict") is None:
+    def tensorclass(cls=None, **_kwargs):
+        def wrap(inner_cls):
+            inner_cls = dataclass(inner_cls)
+
+            def apply(self, fn):
+                updated = {}
+                for field in dataclasses.fields(self):
+                    value = getattr(self, field.name)
+                    if torch.is_tensor(value):
+                        updated[field.name] = fn(value)
+                    elif hasattr(value, "apply"):
+                        updated[field.name] = value.apply(fn)
+                    else:
+                        updated[field.name] = value
+                return self.__class__(**updated)
+
+            inner_cls.apply = apply
+            return inner_cls
+
+        return wrap if cls is None else wrap(cls)
+else:
+    from tensordict import tensorclass
 
 
 @tensorclass
