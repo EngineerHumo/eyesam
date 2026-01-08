@@ -220,10 +220,23 @@ def _load_config(config_file, overrides):
     if config_path.is_file():
         cfg = OmegaConf.load(config_path)
         if overrides:
-            cleaned = [override.lstrip("+") for override in overrides]
-            cfg = OmegaConf.merge(cfg, OmegaConf.from_dotlist(cleaned))
+            normalized = _normalize_overrides(cfg, overrides)
+            cfg = OmegaConf.merge(cfg, OmegaConf.from_dotlist(normalized))
         return cfg
     return compose(config_name=config_file, overrides=overrides)
+
+
+def _normalize_overrides(cfg, overrides):
+    cleaned = [override.lstrip("+") for override in overrides]
+    if "trainer" in cfg and "model" in cfg.trainer and "model" not in cfg:
+        normalized = []
+        for override in cleaned:
+            if override.startswith("model."):
+                normalized.append(f"trainer.{override}")
+            else:
+                normalized.append(override)
+        return normalized
+    return cleaned
 
 
 def _get_model_cfg(cfg):
