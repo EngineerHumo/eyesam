@@ -144,17 +144,17 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="interactive predictor using SAM2 checkpoint")
     parser.add_argument(
         "--checkpoint",
-        default=None,
+        default=r"C:\work space\prp\predict_260107\best_dice_epoch_0238_first_0p768089_final_0p901605.pt",
         help="Path to the SAM2 .pt checkpoint (defaults to a single .pt in script dir).",
     )
     parser.add_argument(
         "--config",
-        default=None,
+        default=r"C:\work space\prp\predict_260107\sam2\configs\sam2.1_hiera_tiny512_laser.yaml",
         help="Path to SAM2 config yaml (defaults to sam2.1_hiera_tiny512_laser.yaml).",
     )
     parser.add_argument(
         "--image-dir",
-        required=True,
+        default=r"C:\work space\prp\predict_260107\demo",
         help="Directory containing images to predict.",
     )
     parser.add_argument("--device", default=None, help="Device to run inference on")
