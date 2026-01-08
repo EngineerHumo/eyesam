@@ -41,7 +41,7 @@ def resize_mask(mask_logits: np.ndarray, size: Tuple[int, int]) -> np.ndarray:
     return resized.squeeze(0).squeeze(0).numpy()
 
 
-class ONNXSAM2Predictor:
+class ONNXPredictor:
     def __init__(self, model_path: Path, device: str | None = None) -> None:
         available = ort.get_available_providers()
         if device is None:
@@ -130,7 +130,7 @@ def draw_circles(image: Image.Image, mask: np.ndarray) -> Image.Image:
     return output
 
 
-def run_interactive(predictor: ONNXSAM2Predictor, image_path: Path) -> bool:
+def run_interactive(predictor: ONNXPredictor, image_path: Path) -> bool:
     original = Image.open(image_path).convert("RGB")
     width, height = original.size
     image_array = preprocess_image(original, predictor.image_size)
@@ -191,13 +191,13 @@ def run_interactive(predictor: ONNXSAM2Predictor, image_path: Path) -> bool:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="SAM2 interactive predictor")
+    parser = argparse.ArgumentParser(description="interactive predictor")
     parser.add_argument("--onnx-model", required=True, help="Path to ONNX model")
     parser.add_argument("--image-dir", required=True, help="Directory containing images")
     parser.add_argument("--device", default=None, help="Device to run inference on")
     args = parser.parse_args()
 
-    predictor = ONNXSAM2Predictor(Path(args.onnx_model), device=args.device)
+    predictor = ONNXPredictor(Path(args.onnx_model), device=args.device)
 
     image_paths = load_images(Path(args.image_dir))
     for image_path in image_paths:
