@@ -86,7 +86,8 @@ def build_sam2(
     # Read config and init model
     cfg = compose(config_name=config_file, overrides=hydra_overrides_extra)
     OmegaConf.resolve(cfg)
-    model = instantiate(cfg.model, _recursive_=True)
+    model_cfg = _get_model_cfg(cfg)
+    model = instantiate(model_cfg, _recursive_=True)
     _load_checkpoint(model, ckpt_path)
     model = model.to(device)
     if mode == "eval":
@@ -128,7 +129,8 @@ def build_sam2_video_predictor(
     # Read config and init model
     cfg = compose(config_name=config_file, overrides=hydra_overrides)
     OmegaConf.resolve(cfg)
-    model = instantiate(cfg.model, _recursive_=True)
+    model_cfg = _get_model_cfg(cfg)
+    model = instantiate(model_cfg, _recursive_=True)
     _load_checkpoint(model, ckpt_path)
     model = model.to(device)
     if mode == "eval":
@@ -169,7 +171,8 @@ def build_sam2_video_predictor_npz(
     # Read config and init model
     cfg = compose(config_name=config_file, overrides=hydra_overrides)
     OmegaConf.resolve(cfg)
-    model = instantiate(cfg.model, _recursive_=True)
+    model_cfg = _get_model_cfg(cfg)
+    model = instantiate(model_cfg, _recursive_=True)
     _load_checkpoint(model, ckpt_path)
     model = model.to(device)
     if mode == "eval":
@@ -209,6 +212,14 @@ def _load_checkpoint(model, ckpt_path):
             logging.error(unexpected_keys)
             raise RuntimeError()
         logging.info("Loaded checkpoint sucessfully")
+
+
+def _get_model_cfg(cfg):
+    if "model" in cfg:
+        return cfg.model
+    if "trainer" in cfg and "model" in cfg.trainer:
+        return cfg.trainer.model
+    raise KeyError("Expected config to contain `model` or `trainer.model` section.")
 
 
 def _ensure_omegaconf_resolvers():
