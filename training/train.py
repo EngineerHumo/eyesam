@@ -277,8 +277,10 @@ if __name__ == "__main__":
     
     # Override dataset folder and experiment output path if specified
     config_name = args.config
-    if config_name.startswith("configs/"):
-        config_name = config_name[len("configs/"):]
+    if config_name.startswith("sam2/"):
+        config_name = config_name[len("sam2/"):]
+    if not config_name.startswith("configs/"):
+        config_name = f"configs/{config_name}"
     cfg = compose(config_name=config_name)
     if args.dataset_path is not None:
         cfg.dataset.folder = args.dataset_path
