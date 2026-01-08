@@ -79,7 +79,7 @@ class SAM2OnnxWrapper(torch.nn.Module):
         point_labels = point_labels.to(torch.int64)
         num_points = point_labels.size(1)
         point_embeddings = prompt_encoder._embed_points(
-            point_coords, point_labels, pad=True
+            point_coords, point_labels, pad=False
         )
         sparse_embeddings = point_embeddings
 
