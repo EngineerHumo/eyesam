@@ -137,10 +137,12 @@ class SAM2DecoderOnnxWrapper(torch.nn.Module):
         )
 
         if self.model.pred_obj_scores:
-            is_obj_appearing = object_score_logits > 0
-            no_obj_score = low_res_multimasks.new_tensor(NO_OBJ_SCORE)
+            is_obj_appearing = (object_score_logits > 0)[:, None, None, None]
+            no_obj_score = low_res_multimasks.new_tensor(NO_OBJ_SCORE).expand_as(
+                low_res_multimasks
+            )
             low_res_multimasks = torch.where(
-                is_obj_appearing[:, None, None], low_res_multimasks, no_obj_score
+                is_obj_appearing, low_res_multimasks, no_obj_score
             )
 
         low_res_multimasks = low_res_multimasks.float()
