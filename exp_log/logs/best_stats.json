@@ -129,3 +129,5 @@
 {"best_val_loss": 3.606191461736506, "Trainer/where": 0.32247126436781604, "Trainer/epoch": 128, "Trainer/steps_train": 11223}
 {"best_val_loss": 3.606191461736506, "Trainer/where": 0.32497126436781604, "Trainer/epoch": 129, "Trainer/steps_train": 11310}
 {"best_val_loss": 3.606191461736506, "Trainer/where": 0.32747126436781604, "Trainer/epoch": 130, "Trainer/steps_train": 11397}
+{"best_val_loss": 3.606191461736506, "Trainer/where": 0.32997126436781604, "Trainer/epoch": 131, "Trainer/steps_train": 11484}
+{"best_val_loss": 3.606191461736506, "Trainer/where": 0.33247126436781604, "Trainer/epoch": 132, "Trainer/steps_train": 11571}

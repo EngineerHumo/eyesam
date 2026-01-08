@@ -144,7 +144,7 @@ class SAM2OnnxWrapper(torch.nn.Module):
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Export SAM2 ONNX model")
-    parser.add_argument("--checkpoint", required=True, help="Path to model weights")
+    parser.add_argument("--checkpoint", default="/home/wensheng/gjq_workspace/eyesam/exp_log_260107_test1/checkpoints/checkpoint_180.pt", help="Path to model weights")
     parser.add_argument(
         "--config",
         default="sam2/configs/sam2.1_hiera_tiny512_laser.yaml",
