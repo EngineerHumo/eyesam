@@ -187,6 +187,7 @@ class Trainer:
         cuda = CudaConf(**cuda or {})
         self.where = 0.0
         self.best_val_loss: Optional[float] = None
+        self.best_dice_checkpoints: List[Dict[str, Any]] = []
         self.last_val_visual_epoch: Optional[int] = None
 
         self._infer_distributed_backend_if_none(distributed, accelerator)
@@ -356,6 +357,7 @@ class Trainer:
             "time_elapsed": self.time_elapsed_meter.val,
             "best_meter_values": self.best_meter_values,
             "best_val_loss": self.best_val_loss,
+            "best_dice_checkpoints": self.best_dice_checkpoints,
         }
         if self.optim_conf.amp.enabled:
             checkpoint["scaler"] = self.scaler.state_dict()
@@ -448,6 +450,7 @@ class Trainer:
 
         self.best_meter_values = checkpoint.get("best_meter_values", {})
         self.best_val_loss = checkpoint.get("best_val_loss", None)
+        self.best_dice_checkpoints = checkpoint.get("best_dice_checkpoints", [])
 
         if "train_dataset" in checkpoint and self.train_dataset is not None:
             self.train_dataset.load_checkpoint_state(checkpoint["train_dataset"])
@@ -739,6 +742,54 @@ class Trainer:
             )
         return val_loss
 
+    def _format_metric_for_ckpt_name(self, value: float) -> str:
+        return f"{value:.6f}".replace(".", "p")
+
+    def _maybe_save_topk_dice_checkpoints(self, out_dict: Mapping[str, Any]) -> None:
+        if (
+            "Dice/val_first_click" not in out_dict
+            or "Dice/val_final_iter" not in out_dict
+        ):
+            return
+        first_click = float(out_dict["Dice/val_first_click"])
+        final_iter = float(out_dict["Dice/val_final_iter"])
+        epoch = int(self.epoch + 1)
+
+        entry = {
+            "epoch": epoch,
+            "dice_first_click": first_click,
+            "dice_final_iter": final_iter,
+        }
+
+        existing_epochs = {item.get("epoch") for item in self.best_dice_checkpoints}
+        if epoch in existing_epochs:
+            return
+
+        should_save = len(self.best_dice_checkpoints) < 10 or any(
+            first_click > item.get("dice_first_click", float("-inf"))
+            for item in self.best_dice_checkpoints
+        )
+        if not should_save:
+            return
+
+        ckpt_name = (
+            f"best_dice_epoch_{epoch:04d}_first_{self._format_metric_for_ckpt_name(first_click)}"
+            f"_final_{self._format_metric_for_ckpt_name(final_iter)}"
+        )
+        self.save_checkpoint(epoch, checkpoint_names=[ckpt_name])
+
+        entry["path"] = os.path.join(self.checkpoint_conf.save_dir, f"{ckpt_name}.pt")
+        self.best_dice_checkpoints.append(entry)
+        self.best_dice_checkpoints.sort(
+            key=lambda item: item.get("dice_first_click", 0.0), reverse=True
+        )
+
+        while len(self.best_dice_checkpoints) > 10:
+            removed = self.best_dice_checkpoints.pop()
+            path = removed.get("path")
+            if path and g_pathmgr.exists(path):
+                g_pathmgr.rm(path)
+
     def _denormalize_image(self, image: torch.Tensor) -> torch.Tensor:
         mean = self.logging_conf.visdom_image_mean
         std = self.logging_conf.visdom_image_std
@@ -945,6 +996,7 @@ class Trainer:
 
         for phase in curr_phases:
             out_dict.update(self._get_trainer_state(phase))
+        self._maybe_save_topk_dice_checkpoints(out_dict)
         self._reset_meters(curr_phases)
         if (
             "Dice/val_first_click" in out_dict
