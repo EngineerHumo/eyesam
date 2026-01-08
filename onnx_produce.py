@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import argparse
-import inspect
 from pathlib import Path
 from typing import Any, Dict
 
 import torch
 import yaml
+from hydra.utils import instantiate
 from omegaconf import OmegaConf
 
 from sam2.modeling.sam2_base import NO_OBJ_SCORE, SAM2Base
@@ -24,15 +24,19 @@ def _load_config(config_path: Path) -> Dict[str, Any]:
     _ensure_omegaconf_resolvers()
     config = OmegaConf.create(yaml.safe_load(config_path.read_text()))
     OmegaConf.resolve(config)
-    return config["trainer"]["model"]
+    return config
 
 
-def _filter_model_kwargs(model_cfg, *allowed_types) -> Dict[str, Any]:
-    allowed = set()
-    for allowed_type in allowed_types:
-        allowed.update(inspect.signature(allowed_type.__init__).parameters)
-    allowed.discard("self")
-    return {k: v for k, v in model_cfg.items() if k in allowed}
+def _get_model_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    if "trainer" in config and "model" in config["trainer"]:
+        return config["trainer"]["model"]
+    if "model" in config:
+        return config["model"]
+    raise KeyError("Config must contain trainer.model or model section.")
+
+
+def _build_model(model_cfg: Dict[str, Any]) -> torch.nn.Module:
+    return instantiate(model_cfg, _recursive_=True)
 
 
 def _load_checkpoint(model: torch.nn.Module, ckpt_path: Path) -> None:
@@ -159,12 +163,9 @@ def main() -> None:
     ckpt_path = Path(args.checkpoint)
     output_path = Path(args.output)
 
-    model_cfg = _load_config(config_path)
-    model_cfg = dict(model_cfg)
-    model_cfg["num_maskmem"] = 0
-
-    model_kwargs = _filter_model_kwargs(model_cfg, SAM2Base)
-    model = SAM2Base(**model_kwargs)
+    config = _load_config(config_path)
+    model_cfg = _get_model_config(config)
+    model = _build_model(model_cfg)
     _load_checkpoint(model, ckpt_path)
     device = torch.device(args.device)
     model = model.to(device)
