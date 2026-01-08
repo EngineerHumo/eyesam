@@ -469,6 +469,15 @@ class SAM2Train(SAM2Base):
         all_pred_ious = [ious]
         all_point_inputs = [point_inputs]
         all_object_score_logits = [object_score_logits]
+        sam_outputs = (
+            low_res_multimasks,
+            high_res_multimasks,
+            ious,
+            low_res_masks,
+            high_res_masks,
+            None,
+            object_score_logits,
+        )
         for _ in range(self.num_correction_pt_per_frame):
             # sample a new point from the error between prediction and ground-truth
             # (with a small probability, directly sample from GT masks instead of errors)
