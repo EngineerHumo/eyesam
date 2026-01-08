@@ -157,6 +157,12 @@ def main() -> None:
         help="Output ONNX path",
     )
     parser.add_argument("--device", default="cpu", help="Device for export")
+    parser.add_argument(
+        "--max-points",
+        type=int,
+        default=16,
+        help="Number of point prompts to export for (must match inference max points).",
+    )
     parser.add_argument("--opset", type=int, default=17, help="ONNX opset version")
     args = parser.parse_args()
 
@@ -176,8 +182,8 @@ def main() -> None:
 
     image_size = model.image_size
     dummy_image = torch.randn(1, 3, image_size, image_size, device=device)
-    dummy_points = torch.zeros(1, 1, 2, device=device)
-    dummy_labels = torch.ones(1, 1, dtype=torch.int64, device=device)
+    dummy_points = torch.zeros(1, args.max_points, 2, device=device)
+    dummy_labels = torch.ones(1, args.max_points, dtype=torch.int64, device=device)
     dummy_mask = torch.zeros(
         1, 1, image_size // 4, image_size // 4, device=device
     )
