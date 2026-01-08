@@ -1117,10 +1117,11 @@ class EfficientTAMVideoPredictorVOS(EfficientTAMVideoPredictor):
 
             # Mask used for spatial memories is always a *hard* choice between obj and no obj,
             # consistent with the actual mask prediction
+            no_obj_score = low_res_multimasks.new_tensor(NO_OBJ_SCORE)
             low_res_multimasks = torch.where(
                 is_obj_appearing[:, None, None],
                 low_res_multimasks,
-                NO_OBJ_SCORE,
+                no_obj_score,
             )
 
         # convert masks from possibly bfloat16 (or float16) to float32
