@@ -42,7 +42,12 @@ def resize_mask(mask_logits: np.ndarray, size: Tuple[int, int]) -> np.ndarray:
 
 
 class ONNXPredictor:
-    def __init__(self, model_path: Path, device: str | None = None) -> None:
+    def __init__(
+        self,
+        model_path: Path,
+        device: str | None = None,
+        max_points: int | None = None,
+    ) -> None:
         available = ort.get_available_providers()
         if device is None:
             providers = (
@@ -62,7 +67,11 @@ class ONNXPredictor:
         image_shape = self.session.get_inputs()[0].shape
         self.image_size = int(image_shape[2])
         point_shape = self.session.get_inputs()[1].shape
-        self.max_points = int(point_shape[1])
+        point_dim = point_shape[1]
+        if max_points is not None:
+            self.max_points = max_points
+        else:
+            self.max_points = point_dim if isinstance(point_dim, int) else None
 
     def predict(
         self,
@@ -101,6 +110,10 @@ class ONNXPredictor:
     def prepare_points(
         self, points: np.ndarray, labels: np.ndarray
     ) -> Tuple[np.ndarray, np.ndarray]:
+        if self.max_points is None:
+            return points[np.newaxis, ...].astype(np.float32), labels[np.newaxis, ...].astype(
+                np.int64
+            )
         padded_points = np.zeros((1, self.max_points, 2), dtype=np.float32)
         padded_labels = np.full((1, self.max_points), -1, dtype=np.int64)
         num_points = min(points.shape[0], self.max_points)
@@ -208,9 +221,17 @@ def main() -> None:
     parser.add_argument("--onnx-model", default=r"C:\work space\prp\predict_260107\sam2_interactive.onnx", help="Path to ONNX model")
     parser.add_argument("--image-dir", default=r"C:\work space\prp\predict_260107\demo", help="Directory containing images")
     parser.add_argument("--device", default=None, help="Device to run inference on")
+    parser.add_argument(
+        "--max-points",
+        type=int,
+        default=None,
+        help="Override max points for models with dynamic point input",
+    )
     args = parser.parse_args()
 
-    predictor = ONNXPredictor(Path(args.onnx_model), device=args.device)
+    predictor = ONNXPredictor(
+        Path(args.onnx_model), device=args.device, max_points=args.max_points
+    )
 
     image_paths = load_images(Path(args.image_dir))
     for image_path in image_paths:
