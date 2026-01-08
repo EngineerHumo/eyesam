@@ -167,8 +167,10 @@ def run_interactive(predictor: ONNXPredictor, image_path: Path) -> bool:
         points = np.array(click_points, dtype=np.float32)
         points[:, 0] = points[:, 0] / width * predictor.image_size
         points[:, 1] = points[:, 1] / height * predictor.image_size
-        point_coords = points[None, ...].astype(np.float32)
-        point_labels = np.array(click_labels, dtype=np.int64)[None, ...]
+        point_coords = np.zeros((1, max_clicks, 2), dtype=np.float32)
+        point_labels = -np.ones((1, max_clicks), dtype=np.int64)
+        point_coords[0, : points.shape[0], :] = points
+        point_labels[0, : len(click_labels)] = np.array(click_labels, dtype=np.int64)
         low_res, high_res = predictor.predict(
             image_array, point_coords, point_labels, prev_low_res
         )
