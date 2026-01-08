@@ -144,6 +144,7 @@ class SAM2OnnxWrapper(torch.nn.Module):
 
 
 def main() -> None:
+    required_max_points = 256
     parser = argparse.ArgumentParser(description="Export SAM2 ONNX model")
     parser.add_argument("--checkpoint", default="/home/wensheng/gjq_workspace/eyesam/exp_log_260107_test1/checkpoints/checkpoint_180.pt", help="Path to model weights")
     parser.add_argument(
@@ -160,11 +161,18 @@ def main() -> None:
     parser.add_argument(
         "--max-points",
         type=int,
-        default=16,
-        help="Number of point prompts to export for (must match inference max points).",
+        default=required_max_points,
+        help=(
+            "Number of point prompts to export for (must match inference max points). "
+            f"Fixed at {required_max_points}."
+        ),
     )
     parser.add_argument("--opset", type=int, default=17, help="ONNX opset version")
     args = parser.parse_args()
+    if args.max_points != required_max_points:
+        raise ValueError(
+            f"--max-points must be {required_max_points} to match the exported model."
+        )
 
     config_path = Path(args.config)
     ckpt_path = Path(args.checkpoint)
@@ -183,7 +191,7 @@ def main() -> None:
     image_size = model.image_size
     dummy_image = torch.randn(1, 3, image_size, image_size, device=device)
     dummy_points = torch.zeros(1, args.max_points, 2, device=device)
-    dummy_labels = torch.ones(1, args.max_points, dtype=torch.int64, device=device)
+    dummy_labels = -torch.ones(1, args.max_points, dtype=torch.int64, device=device)
     dummy_mask = torch.zeros(
         1, 1, image_size // 4, image_size // 4, device=device
     )
