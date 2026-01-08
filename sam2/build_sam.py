@@ -5,6 +5,9 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
+import math
+import sys
+from pathlib import Path
 
 import torch
 from hydra import compose
@@ -69,6 +72,8 @@ def build_sam2(
     apply_postprocessing=True,
     **kwargs,
 ):
+    _ensure_repo_on_path(config_file)
+    _ensure_omegaconf_resolvers()
     # Use the provided device or get the best available one
     device = device or get_best_available_device()
     logging.info(f"Using device: {device}")
@@ -82,9 +87,10 @@ def build_sam2(
             "++model.sam_mask_decoder_extra_args.dynamic_multimask_stability_thresh=0.98",
         ]
     # Read config and init model
-    cfg = compose(config_name=config_file, overrides=hydra_overrides_extra)
+    cfg = _load_config(config_file, hydra_overrides_extra)
     OmegaConf.resolve(cfg)
-    model = instantiate(cfg.model, _recursive_=True)
+    model_cfg = _get_model_cfg(cfg)
+    model = instantiate(model_cfg, _recursive_=True)
     _load_checkpoint(model, ckpt_path)
     model = model.to(device)
     if mode == "eval":
@@ -101,6 +107,8 @@ def build_sam2_video_predictor(
     apply_postprocessing=True,
     **kwargs,
 ):
+    _ensure_repo_on_path(config_file)
+    _ensure_omegaconf_resolvers()
     # Use the provided device or get the best available one
     device = device or get_best_available_device()
     logging.info(f"Using device: {device}")
@@ -123,9 +131,10 @@ def build_sam2_video_predictor(
     hydra_overrides.extend(hydra_overrides_extra)
 
     # Read config and init model
-    cfg = compose(config_name=config_file, overrides=hydra_overrides)
+    cfg = _load_config(config_file, hydra_overrides)
     OmegaConf.resolve(cfg)
-    model = instantiate(cfg.model, _recursive_=True)
+    model_cfg = _get_model_cfg(cfg)
+    model = instantiate(model_cfg, _recursive_=True)
     _load_checkpoint(model, ckpt_path)
     model = model.to(device)
     if mode == "eval":
@@ -141,6 +150,8 @@ def build_sam2_video_predictor_npz(
     apply_postprocessing=True,
     **kwargs,
 ):
+    _ensure_repo_on_path(config_file)
+    _ensure_omegaconf_resolvers()
     # Use the provided device or get the best available one
     device = device or get_best_available_device()
     logging.info(f"Using device: {device}")
@@ -163,9 +174,10 @@ def build_sam2_video_predictor_npz(
     hydra_overrides.extend(hydra_overrides_extra)
 
     # Read config and init model
-    cfg = compose(config_name=config_file, overrides=hydra_overrides)
+    cfg = _load_config(config_file, hydra_overrides)
     OmegaConf.resolve(cfg)
-    model = instantiate(cfg.model, _recursive_=True)
+    model_cfg = _get_model_cfg(cfg)
+    model = instantiate(model_cfg, _recursive_=True)
     _load_checkpoint(model, ckpt_path)
     model = model.to(device)
     if mode == "eval":
@@ -205,3 +217,66 @@ def _load_checkpoint(model, ckpt_path):
             logging.error(unexpected_keys)
             raise RuntimeError()
         logging.info("Loaded checkpoint sucessfully")
+
+
+def _ensure_repo_on_path(config_file):
+    repo_candidates = [Path(__file__).resolve().parents[1]]
+    config_path = Path(config_file)
+    if config_path.is_file():
+        repo_candidates.extend(config_path.parents)
+    for candidate in repo_candidates:
+        training_dir = candidate / "training"
+        if training_dir.exists():
+            candidate_str = str(candidate)
+            if candidate_str not in sys.path:
+                sys.path.insert(0, candidate_str)
+            break
+
+
+def _load_config(config_file, overrides):
+    config_path = Path(config_file)
+    if config_path.is_file():
+        cfg = OmegaConf.load(config_path)
+        if overrides:
+            normalized = _normalize_overrides(cfg, overrides)
+            cfg = OmegaConf.merge(cfg, OmegaConf.from_dotlist(normalized))
+        return cfg
+    return compose(config_name=config_file, overrides=overrides)
+
+
+def _normalize_overrides(cfg, overrides):
+    cleaned = [override.lstrip("+") for override in overrides]
+    if "trainer" in cfg and "model" in cfg.trainer and "model" not in cfg:
+        normalized = []
+        for override in cleaned:
+            if override.startswith("model."):
+                normalized.append(f"trainer.{override}")
+            else:
+                normalized.append(override)
+        return normalized
+    return cleaned
+
+
+def _get_model_cfg(cfg):
+    if "model" in cfg:
+        return cfg.model
+    if "trainer" in cfg and "model" in cfg.trainer:
+        return cfg.trainer.model
+    raise KeyError("Expected config to contain `model` or `trainer.model` section.")
+
+
+def _ensure_omegaconf_resolvers():
+    resolvers = {
+        "add": lambda x, y: x + y,
+        "times": lambda *args: math.prod(args),
+        "divide": lambda x, y: x / y,
+        "pow": lambda x, y: x**y,
+        "subtract": lambda x, y: x - y,
+        "range": lambda x: list(range(x)),
+        "int": lambda x: int(x),
+        "ceil_int": lambda x: int(math.ceil(x)),
+        "merge": lambda *args: OmegaConf.merge(*args),
+    }
+    for name, resolver in resolvers.items():
+        if not OmegaConf.has_resolver(name):
+            OmegaConf.register_new_resolver(name, resolver)
