@@ -67,23 +67,7 @@ class ONNXPredictor:
         inputs = {input_info.name: input_info for input_info in self.session.get_inputs()}
         image_shape = inputs["image"].shape
         self.image_size = int(image_shape[2])
-        point_dim = None
-        for name in ("point_coords", "point_labels"):
-            if name in inputs:
-                shape = inputs[name].shape
-                if len(shape) > 1 and isinstance(shape[1], int):
-                    point_dim = int(shape[1])
-                    break
-        if max_points is not None:
-            self.max_points = max_points
-        elif point_dim is not None:
-            self.max_points = point_dim
-        else:
-            self.max_points = 256
-            print(
-                "Warning: point input is dynamic; defaulting max_points to 256. "
-                "Pass --max-points to override if your model expects a different size."
-            )
+        self.max_points = max_points if max_points is not None else 16
 
     def predict(
         self,
@@ -118,18 +102,6 @@ class ONNXPredictor:
         )
         low_res_masks, high_res_masks = outputs
         return low_res_masks, high_res_masks
-
-    def prepare_points(
-        self, points: np.ndarray, labels: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        padded_points = np.zeros((1, self.max_points, 2), dtype=np.float32)
-        padded_labels = np.full((1, self.max_points), -1, dtype=np.int64)
-        num_points = min(points.shape[0], self.max_points)
-        if num_points:
-            padded_points[0, :num_points] = points[:num_points]
-            padded_labels[0, :num_points] = labels[:num_points]
-        return padded_points, padded_labels
-
 
 def generate_hex_centers(mask: np.ndarray, spacing: float = 24.0) -> List[Tuple[int, int]]:
     height, width = mask.shape
@@ -171,7 +143,7 @@ def run_interactive(predictor: ONNXPredictor, image_path: Path) -> bool:
 
     click_points: List[Tuple[float, float]] = []
     click_labels: List[int] = []
-    click_history: List[dict] = []
+    max_clicks = predictor.max_points
     prev_low_res: np.ndarray | None = None
 
     fig, ax = plt.subplots()
@@ -189,22 +161,20 @@ def run_interactive(predictor: ONNXPredictor, image_path: Path) -> bool:
         label = 1 if event.button == 1 else 0
         click_points.append((event.xdata, event.ydata))
         click_labels.append(label)
+        if len(click_points) > max_clicks:
+            click_points.pop(0)
+            click_labels.pop(0)
         points = np.array(click_points, dtype=np.float32)
         points[:, 0] = points[:, 0] / width * predictor.image_size
         points[:, 1] = points[:, 1] / height * predictor.image_size
-        point_labels = np.array(click_labels, dtype=np.int64)
-        point_coords, point_labels = predictor.prepare_points(points, point_labels)
+        point_coords = points[None, ...].astype(np.float32)
+        point_labels = np.array(click_labels, dtype=np.int64)[None, ...]
         low_res, high_res = predictor.predict(
             image_array, point_coords, point_labels, prev_low_res
         )
         prev_low_res = low_res
         mask_logits = resize_mask(high_res, (height, width))
         mask = mask_logits > 0.0
-        click_history.append({
-            "points": list(click_points),
-            "labels": list(click_labels),
-            "mask": mask,
-        })
         overlay = draw_circles(original, mask)
         image_artist.set_data(overlay)
         fig.canvas.draw_idle()
@@ -232,8 +202,8 @@ def main() -> None:
     parser.add_argument(
         "--max-points",
         type=int,
-        default=None,
-        help="Override max points for models with dynamic point input",
+        default=16,
+        help="Maximum number of user clicks to keep (oldest clicks are dropped).",
     )
     args = parser.parse_args()
 
