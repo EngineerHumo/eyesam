@@ -212,5 +212,17 @@ def _load_checkpoint(model, ckpt_path):
 
 
 def _ensure_omegaconf_resolvers():
-    if not OmegaConf.has_resolver("times"):
-        OmegaConf.register_new_resolver("times", lambda *args: math.prod(args))
+    resolvers = {
+        "add": lambda x, y: x + y,
+        "times": lambda *args: math.prod(args),
+        "divide": lambda x, y: x / y,
+        "pow": lambda x, y: x**y,
+        "subtract": lambda x, y: x - y,
+        "range": lambda x: list(range(x)),
+        "int": lambda x: int(x),
+        "ceil_int": lambda x: int(math.ceil(x)),
+        "merge": lambda *args: OmegaConf.merge(*args),
+    }
+    for name, resolver in resolvers.items():
+        if not OmegaConf.has_resolver(name):
+            OmegaConf.register_new_resolver(name, resolver)
