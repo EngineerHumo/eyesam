@@ -6,6 +6,7 @@
 
 import logging
 import math
+import sys
 from pathlib import Path
 
 import torch
@@ -71,6 +72,7 @@ def build_sam2(
     apply_postprocessing=True,
     **kwargs,
 ):
+    _ensure_repo_on_path()
     _ensure_omegaconf_resolvers()
     # Use the provided device or get the best available one
     device = device or get_best_available_device()
@@ -105,6 +107,7 @@ def build_sam2_video_predictor(
     apply_postprocessing=True,
     **kwargs,
 ):
+    _ensure_repo_on_path()
     _ensure_omegaconf_resolvers()
     # Use the provided device or get the best available one
     device = device or get_best_available_device()
@@ -147,6 +150,7 @@ def build_sam2_video_predictor_npz(
     apply_postprocessing=True,
     **kwargs,
 ):
+    _ensure_repo_on_path()
     _ensure_omegaconf_resolvers()
     # Use the provided device or get the best available one
     device = device or get_best_available_device()
@@ -213,6 +217,13 @@ def _load_checkpoint(model, ckpt_path):
             logging.error(unexpected_keys)
             raise RuntimeError()
         logging.info("Loaded checkpoint sucessfully")
+
+
+def _ensure_repo_on_path():
+    repo_root = Path(__file__).resolve().parents[1]
+    repo_root_str = str(repo_root)
+    if repo_root_str not in sys.path:
+        sys.path.insert(0, repo_root_str)
 
 
 def _load_config(config_file, overrides):
