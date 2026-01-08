@@ -17,6 +17,7 @@ from PIL import Image, ImageDraw
 
 MEAN = (0.485, 0.456, 0.406)
 STD = (0.229, 0.224, 0.225)
+REQUIRED_MAX_POINTS = 256
 
 
 def load_images(image_dir: Path) -> List[Path]:
@@ -67,7 +68,11 @@ class ONNXPredictor:
         inputs = {input_info.name: input_info for input_info in self.session.get_inputs()}
         image_shape = inputs["image"].shape
         self.image_size = int(image_shape[2])
-        self.max_points = max_points if max_points is not None else 16
+        if max_points is not None and max_points != REQUIRED_MAX_POINTS:
+            raise ValueError(
+                f"max_points must be {REQUIRED_MAX_POINTS} to match the ONNX model."
+            )
+        self.max_points = REQUIRED_MAX_POINTS
 
     def predict(
         self,
@@ -204,10 +209,17 @@ def main() -> None:
     parser.add_argument(
         "--max-points",
         type=int,
-        default=16,
-        help="Maximum number of user clicks to keep (oldest clicks are dropped).",
+        default=REQUIRED_MAX_POINTS,
+        help=(
+            "Maximum number of user clicks to keep (oldest clicks are dropped). "
+            f"Fixed at {REQUIRED_MAX_POINTS}."
+        ),
     )
     args = parser.parse_args()
+    if args.max_points != REQUIRED_MAX_POINTS:
+        raise ValueError(
+            f"--max-points must be {REQUIRED_MAX_POINTS} to match the ONNX model."
+        )
 
     predictor = ONNXPredictor(
         Path(args.onnx_model), device=args.device, max_points=args.max_points
