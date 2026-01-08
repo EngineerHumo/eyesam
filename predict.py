@@ -61,6 +61,8 @@ class ONNXPredictor:
         self.session = ort.InferenceSession(model_path.as_posix(), providers=providers)
         image_shape = self.session.get_inputs()[0].shape
         self.image_size = int(image_shape[2])
+        point_shape = self.session.get_inputs()[1].shape
+        self.max_points = int(point_shape[1])
 
     def predict(
         self,
@@ -95,6 +97,17 @@ class ONNXPredictor:
         )
         low_res_masks, high_res_masks = outputs
         return low_res_masks, high_res_masks
+
+    def prepare_points(
+        self, points: np.ndarray, labels: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        padded_points = np.zeros((1, self.max_points, 2), dtype=np.float32)
+        padded_labels = np.full((1, self.max_points), -1, dtype=np.int64)
+        num_points = min(points.shape[0], self.max_points)
+        if num_points:
+            padded_points[0, :num_points] = points[:num_points]
+            padded_labels[0, :num_points] = labels[:num_points]
+        return padded_points, padded_labels
 
 
 def generate_hex_centers(mask: np.ndarray, spacing: float = 24.0) -> List[Tuple[int, int]]:
@@ -158,8 +171,8 @@ def run_interactive(predictor: ONNXPredictor, image_path: Path) -> bool:
         points = np.array(click_points, dtype=np.float32)
         points[:, 0] = points[:, 0] / width * predictor.image_size
         points[:, 1] = points[:, 1] / height * predictor.image_size
-        point_coords = points[None, ...]
-        point_labels = np.array(click_labels, dtype=np.int64)[None, ...]
+        point_labels = np.array(click_labels, dtype=np.int64)
+        point_coords, point_labels = predictor.prepare_points(points, point_labels)
         low_res, high_res = predictor.predict(
             image_array, point_coords, point_labels, prev_low_res
         )
