@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
+import math
 
 import torch
 from hydra import compose
@@ -69,6 +70,7 @@ def build_sam2(
     apply_postprocessing=True,
     **kwargs,
 ):
+    _ensure_omegaconf_resolvers()
     # Use the provided device or get the best available one
     device = device or get_best_available_device()
     logging.info(f"Using device: {device}")
@@ -101,6 +103,7 @@ def build_sam2_video_predictor(
     apply_postprocessing=True,
     **kwargs,
 ):
+    _ensure_omegaconf_resolvers()
     # Use the provided device or get the best available one
     device = device or get_best_available_device()
     logging.info(f"Using device: {device}")
@@ -141,6 +144,7 @@ def build_sam2_video_predictor_npz(
     apply_postprocessing=True,
     **kwargs,
 ):
+    _ensure_omegaconf_resolvers()
     # Use the provided device or get the best available one
     device = device or get_best_available_device()
     logging.info(f"Using device: {device}")
@@ -205,3 +209,8 @@ def _load_checkpoint(model, ckpt_path):
             logging.error(unexpected_keys)
             raise RuntimeError()
         logging.info("Loaded checkpoint sucessfully")
+
+
+def _ensure_omegaconf_resolvers():
+    if not OmegaConf.has_resolver("times"):
+        OmegaConf.register_new_resolver("times", lambda *args: math.prod(args))
