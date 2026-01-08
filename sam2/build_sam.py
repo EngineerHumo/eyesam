@@ -6,6 +6,7 @@
 
 import logging
 import math
+from pathlib import Path
 
 import torch
 from hydra import compose
@@ -84,7 +85,7 @@ def build_sam2(
             "++model.sam_mask_decoder_extra_args.dynamic_multimask_stability_thresh=0.98",
         ]
     # Read config and init model
-    cfg = compose(config_name=config_file, overrides=hydra_overrides_extra)
+    cfg = _load_config(config_file, hydra_overrides_extra)
     OmegaConf.resolve(cfg)
     model_cfg = _get_model_cfg(cfg)
     model = instantiate(model_cfg, _recursive_=True)
@@ -127,7 +128,7 @@ def build_sam2_video_predictor(
     hydra_overrides.extend(hydra_overrides_extra)
 
     # Read config and init model
-    cfg = compose(config_name=config_file, overrides=hydra_overrides)
+    cfg = _load_config(config_file, hydra_overrides)
     OmegaConf.resolve(cfg)
     model_cfg = _get_model_cfg(cfg)
     model = instantiate(model_cfg, _recursive_=True)
@@ -169,7 +170,7 @@ def build_sam2_video_predictor_npz(
     hydra_overrides.extend(hydra_overrides_extra)
 
     # Read config and init model
-    cfg = compose(config_name=config_file, overrides=hydra_overrides)
+    cfg = _load_config(config_file, hydra_overrides)
     OmegaConf.resolve(cfg)
     model_cfg = _get_model_cfg(cfg)
     model = instantiate(model_cfg, _recursive_=True)
@@ -212,6 +213,17 @@ def _load_checkpoint(model, ckpt_path):
             logging.error(unexpected_keys)
             raise RuntimeError()
         logging.info("Loaded checkpoint sucessfully")
+
+
+def _load_config(config_file, overrides):
+    config_path = Path(config_file)
+    if config_path.is_file():
+        cfg = OmegaConf.load(config_path)
+        if overrides:
+            cleaned = [override.lstrip("+") for override in overrides]
+            cfg = OmegaConf.merge(cfg, OmegaConf.from_dotlist(cleaned))
+        return cfg
+    return compose(config_name=config_file, overrides=overrides)
 
 
 def _get_model_cfg(cfg):
