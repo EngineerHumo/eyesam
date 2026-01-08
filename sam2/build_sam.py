@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
+import math
 
 import torch
 from hydra import compose
@@ -69,6 +70,7 @@ def build_sam2(
     apply_postprocessing=True,
     **kwargs,
 ):
+    _ensure_omegaconf_resolvers()
     # Use the provided device or get the best available one
     device = device or get_best_available_device()
     logging.info(f"Using device: {device}")
@@ -84,7 +86,8 @@ def build_sam2(
     # Read config and init model
     cfg = compose(config_name=config_file, overrides=hydra_overrides_extra)
     OmegaConf.resolve(cfg)
-    model = instantiate(cfg.model, _recursive_=True)
+    model_cfg = _get_model_cfg(cfg)
+    model = instantiate(model_cfg, _recursive_=True)
     _load_checkpoint(model, ckpt_path)
     model = model.to(device)
     if mode == "eval":
@@ -101,6 +104,7 @@ def build_sam2_video_predictor(
     apply_postprocessing=True,
     **kwargs,
 ):
+    _ensure_omegaconf_resolvers()
     # Use the provided device or get the best available one
     device = device or get_best_available_device()
     logging.info(f"Using device: {device}")
@@ -125,7 +129,8 @@ def build_sam2_video_predictor(
     # Read config and init model
     cfg = compose(config_name=config_file, overrides=hydra_overrides)
     OmegaConf.resolve(cfg)
-    model = instantiate(cfg.model, _recursive_=True)
+    model_cfg = _get_model_cfg(cfg)
+    model = instantiate(model_cfg, _recursive_=True)
     _load_checkpoint(model, ckpt_path)
     model = model.to(device)
     if mode == "eval":
@@ -141,6 +146,7 @@ def build_sam2_video_predictor_npz(
     apply_postprocessing=True,
     **kwargs,
 ):
+    _ensure_omegaconf_resolvers()
     # Use the provided device or get the best available one
     device = device or get_best_available_device()
     logging.info(f"Using device: {device}")
@@ -165,7 +171,8 @@ def build_sam2_video_predictor_npz(
     # Read config and init model
     cfg = compose(config_name=config_file, overrides=hydra_overrides)
     OmegaConf.resolve(cfg)
-    model = instantiate(cfg.model, _recursive_=True)
+    model_cfg = _get_model_cfg(cfg)
+    model = instantiate(model_cfg, _recursive_=True)
     _load_checkpoint(model, ckpt_path)
     model = model.to(device)
     if mode == "eval":
@@ -205,3 +212,28 @@ def _load_checkpoint(model, ckpt_path):
             logging.error(unexpected_keys)
             raise RuntimeError()
         logging.info("Loaded checkpoint sucessfully")
+
+
+def _get_model_cfg(cfg):
+    if "model" in cfg:
+        return cfg.model
+    if "trainer" in cfg and "model" in cfg.trainer:
+        return cfg.trainer.model
+    raise KeyError("Expected config to contain `model` or `trainer.model` section.")
+
+
+def _ensure_omegaconf_resolvers():
+    resolvers = {
+        "add": lambda x, y: x + y,
+        "times": lambda *args: math.prod(args),
+        "divide": lambda x, y: x / y,
+        "pow": lambda x, y: x**y,
+        "subtract": lambda x, y: x - y,
+        "range": lambda x: list(range(x)),
+        "int": lambda x: int(x),
+        "ceil_int": lambda x: int(math.ceil(x)),
+        "merge": lambda *args: OmegaConf.merge(*args),
+    }
+    for name, resolver in resolvers.items():
+        if not OmegaConf.has_resolver(name):
+            OmegaConf.register_new_resolver(name, resolver)
