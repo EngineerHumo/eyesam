@@ -276,7 +276,10 @@ if __name__ == "__main__":
     register_omegaconf_resolvers()
     
     # Override dataset folder and experiment output path if specified
-    cfg = compose(config_name=args.config)
+    config_name = args.config
+    if config_name.startswith("configs/"):
+        config_name = config_name[len("configs/"):]
+    cfg = compose(config_name=config_name)
     if args.dataset_path is not None:
         cfg.dataset.folder = args.dataset_path
     if args.output_path is not None:
