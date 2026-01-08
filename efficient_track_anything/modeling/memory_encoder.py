@@ -85,6 +85,8 @@ class CXBlock(nn.Module):
         use_dwconv=True,
     ):
         super().__init__()
+        if isinstance(layer_scale_init_value, str):
+            layer_scale_init_value = float(layer_scale_init_value)
         self.dwconv = nn.Conv2d(
             dim,
             dim,
