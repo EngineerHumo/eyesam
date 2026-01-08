@@ -206,7 +206,7 @@ def run_interactive(predictor: ONNXPredictor, image_path: Path) -> bool:
 def main() -> None:
     parser = argparse.ArgumentParser(description="interactive predictor")
     parser.add_argument("--onnx-model", default=r"C:\work space\prp\predict_260107\sam2_interactive.onnx", help="Path to ONNX model")
-    parser.add_argument("--image-dir", default=r"C:\work space\prp\predict_260107\val\case_0081\image.png", help="Directory containing images")
+    parser.add_argument("--image-dir", default=r"C:\work space\prp\predict_260107\demo", help="Directory containing images")
     parser.add_argument("--device", default=None, help="Device to run inference on")
     args = parser.parse_args()
 
