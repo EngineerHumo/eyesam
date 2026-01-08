@@ -9,7 +9,6 @@ from typing import Any, Dict
 
 import torch
 import yaml
-from hydra.utils import instantiate
 from omegaconf import OmegaConf
 
 from sam2.modeling.sam2_base import NO_OBJ_SCORE, SAM2Base
@@ -163,10 +162,9 @@ def main() -> None:
     model_cfg = _load_config(config_path)
     model_cfg = dict(model_cfg)
     model_cfg["num_maskmem"] = 0
-    model_cfg["_target_"] = "sam2.modeling.sam2_base.SAM2Base"
 
     model_kwargs = _filter_model_kwargs(model_cfg, SAM2Base)
-    model = instantiate(model_kwargs, _recursive_=True)
+    model = SAM2Base(**model_kwargs)
     _load_checkpoint(model, ckpt_path)
     device = torch.device(args.device)
     model = model.to(device)
