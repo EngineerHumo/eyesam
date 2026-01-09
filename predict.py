@@ -17,7 +17,7 @@ from PIL import Image, ImageDraw
 
 MEAN = (0.485, 0.456, 0.406)
 STD = (0.229, 0.224, 0.225)
-DEFAULT_MAX_POINTS = 8
+REQUIRED_MAX_POINTS = 256
 
 
 def load_images(image_dir: Path) -> List[Path]:
@@ -45,11 +45,9 @@ def resize_mask(mask_logits: np.ndarray, size: Tuple[int, int]) -> np.ndarray:
 class ONNXPredictor:
     def __init__(
         self,
-        encoder_path: Path,
-        decoder_dir: Path,
+        model_path: Path,
         device: str | None = None,
         max_points: int | None = None,
-        decoder_prefix: str = "sam2_decoder_points",
     ) -> None:
         available = ort.get_available_providers()
         if device is None:
@@ -66,68 +64,41 @@ class ONNXPredictor:
             )
         else:
             providers = ["CPUExecutionProvider"]
-        self.encoder_session = ort.InferenceSession(
-            encoder_path.as_posix(), providers=providers
-        )
-        inputs = {
-            input_info.name: input_info
-            for input_info in self.encoder_session.get_inputs()
-        }
+        self.session = ort.InferenceSession(model_path.as_posix(), providers=providers)
+        inputs = {input_info.name: input_info for input_info in self.session.get_inputs()}
         image_shape = inputs["image"].shape
         self.image_size = int(image_shape[2])
-        self.max_points = max_points or DEFAULT_MAX_POINTS
-        if self.max_points < 1:
-            raise ValueError("max_points must be >= 1.")
-
-        self.decoder_sessions: dict[int, ort.InferenceSession] = {}
-        for num_points in range(1, self.max_points + 1):
-            decoder_path = decoder_dir / f"{decoder_prefix}_{num_points}.onnx"
-            self.decoder_sessions[num_points] = ort.InferenceSession(
-                decoder_path.as_posix(), providers=providers
+        if max_points is not None and max_points != REQUIRED_MAX_POINTS:
+            raise ValueError(
+                f"max_points must be {REQUIRED_MAX_POINTS} to match the ONNX model."
             )
+        self.max_points = REQUIRED_MAX_POINTS
 
-    def encode(self, image: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        outputs = self.encoder_session.run(
-            None, {"image": image.astype(np.float32)}
-        )
-        pix_feat, high_res_0, high_res_1 = outputs
-        return pix_feat, high_res_0, high_res_1
-
-    def predict_with_embeddings(
+    def predict(
         self,
-        embeddings: Tuple[np.ndarray, np.ndarray, np.ndarray],
+        image: np.ndarray,
         point_coords: np.ndarray,
         point_labels: np.ndarray,
         prev_low_res: np.ndarray | None,
     ) -> Tuple[np.ndarray, np.ndarray]:
-        pix_feat, high_res_0, high_res_1 = embeddings
-        num_points = point_coords.shape[1]
-        if num_points < 1 or num_points > self.max_points:
-            raise ValueError(
-                f"point count must be within 1..{self.max_points}, got {num_points}."
-            )
-        decoder_session = self.decoder_sessions[num_points]
-        batch_size = pix_feat.shape[0]
         if prev_low_res is None:
             mask_inputs = np.zeros(
                 (
-                    batch_size,
+                    image.shape[0],
                     1,
                     self.image_size // 4,
                     self.image_size // 4,
                 ),
                 dtype=np.float32,
             )
-            has_mask = np.zeros((batch_size, 1, 1, 1), dtype=np.float32)
+            has_mask = np.zeros((image.shape[0], 1, 1, 1), dtype=np.float32)
         else:
             mask_inputs = prev_low_res.astype(np.float32)
-            has_mask = np.ones((batch_size, 1, 1, 1), dtype=np.float32)
-        outputs = decoder_session.run(
+            has_mask = np.ones((image.shape[0], 1, 1, 1), dtype=np.float32)
+        outputs = self.session.run(
             None,
             {
-                "pix_feat": pix_feat.astype(np.float32),
-                "high_res_0": high_res_0.astype(np.float32),
-                "high_res_1": high_res_1.astype(np.float32),
+                "image": image.astype(np.float32),
                 "point_coords": point_coords.astype(np.float32),
                 "point_labels": point_labels.astype(np.int64),
                 "mask_inputs": mask_inputs,
@@ -174,7 +145,6 @@ def run_interactive(predictor: ONNXPredictor, image_path: Path) -> bool:
     original = Image.open(image_path).convert("RGB")
     width, height = original.size
     image_array = preprocess_image(original, predictor.image_size)
-    embeddings = predictor.encode(image_array)
 
     click_points: List[Tuple[float, float]] = []
     click_labels: List[int] = []
@@ -202,10 +172,12 @@ def run_interactive(predictor: ONNXPredictor, image_path: Path) -> bool:
         points = np.array(click_points, dtype=np.float32)
         points[:, 0] = points[:, 0] / width * predictor.image_size
         points[:, 1] = points[:, 1] / height * predictor.image_size
-        point_coords = points[np.newaxis, :, :]
-        point_labels = np.array(click_labels, dtype=np.int64)[np.newaxis, :]
-        low_res, high_res = predictor.predict_with_embeddings(
-            embeddings, point_coords, point_labels, prev_low_res
+        point_coords = np.zeros((1, max_clicks, 2), dtype=np.float32)
+        point_labels = -np.ones((1, max_clicks), dtype=np.int64)
+        point_coords[0, : points.shape[0], :] = points
+        point_labels[0, : len(click_labels)] = np.array(click_labels, dtype=np.int64)
+        low_res, high_res = predictor.predict(
+            image_array, point_coords, point_labels, prev_low_res
         )
         prev_low_res = low_res
         mask_logits = resize_mask(high_res, (height, width))
@@ -231,40 +203,26 @@ def run_interactive(predictor: ONNXPredictor, image_path: Path) -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="interactive predictor")
-    parser.add_argument(
-        "--encoder-onnx",
-        default="sam2_encoder.onnx",
-        help="Path to encoder ONNX model",
-    )
-    parser.add_argument(
-        "--decoder-dir",
-        default="onnx_exports",
-        help="Directory containing decoder ONNX models",
-    )
-    parser.add_argument(
-        "--decoder-prefix",
-        default="sam2_decoder_points",
-        help="Decoder ONNX filename prefix",
-    )
+    parser.add_argument("--onnx-model", default=r"C:\work space\prp\predict_260107\sam2_interactive.onnx", help="Path to ONNX model")
     parser.add_argument("--image-dir", default=r"C:\work space\prp\predict_260107\demo", help="Directory containing images")
     parser.add_argument("--device", default=None, help="Device to run inference on")
     parser.add_argument(
         "--max-points",
         type=int,
-        default=DEFAULT_MAX_POINTS,
+        default=REQUIRED_MAX_POINTS,
         help=(
             "Maximum number of user clicks to keep (oldest clicks are dropped). "
-            "Used to select the exported decoder variants."
+            f"Fixed at {REQUIRED_MAX_POINTS}."
         ),
     )
     args = parser.parse_args()
+    if args.max_points != REQUIRED_MAX_POINTS:
+        raise ValueError(
+            f"--max-points must be {REQUIRED_MAX_POINTS} to match the ONNX model."
+        )
 
     predictor = ONNXPredictor(
-        Path(args.encoder_onnx),
-        Path(args.decoder_dir),
-        device=args.device,
-        max_points=args.max_points,
-        decoder_prefix=args.decoder_prefix,
+        Path(args.onnx_model), device=args.device, max_points=args.max_points
     )
 
     image_paths = load_images(Path(args.image_dir))
