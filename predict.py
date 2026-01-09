@@ -17,7 +17,6 @@ from PIL import Image, ImageDraw
 
 MEAN = (0.485, 0.456, 0.406)
 STD = (0.229, 0.224, 0.225)
-REQUIRED_MAX_POINTS = 256
 
 
 def load_images(image_dir: Path) -> List[Path]:
@@ -47,7 +46,6 @@ class ONNXPredictor:
         self,
         model_path: Path,
         device: str | None = None,
-        max_points: int | None = None,
     ) -> None:
         available = ort.get_available_providers()
         if device is None:
@@ -68,11 +66,6 @@ class ONNXPredictor:
         inputs = {input_info.name: input_info for input_info in self.session.get_inputs()}
         image_shape = inputs["image"].shape
         self.image_size = int(image_shape[2])
-        if max_points is not None and max_points != REQUIRED_MAX_POINTS:
-            raise ValueError(
-                f"max_points must be {REQUIRED_MAX_POINTS} to match the ONNX model."
-            )
-        self.max_points = REQUIRED_MAX_POINTS
 
     def predict(
         self,
@@ -148,7 +141,6 @@ def run_interactive(predictor: ONNXPredictor, image_path: Path) -> bool:
 
     click_points: List[Tuple[float, float]] = []
     click_labels: List[int] = []
-    max_clicks = predictor.max_points
     prev_low_res: np.ndarray | None = None
 
     fig, ax = plt.subplots()
@@ -166,16 +158,11 @@ def run_interactive(predictor: ONNXPredictor, image_path: Path) -> bool:
         label = 1 if event.button == 1 else 0
         click_points.append((event.xdata, event.ydata))
         click_labels.append(label)
-        if len(click_points) > max_clicks:
-            click_points.pop(0)
-            click_labels.pop(0)
         points = np.array(click_points, dtype=np.float32)
         points[:, 0] = points[:, 0] / width * predictor.image_size
         points[:, 1] = points[:, 1] / height * predictor.image_size
-        point_coords = np.zeros((1, max_clicks, 2), dtype=np.float32)
-        point_labels = -np.ones((1, max_clicks), dtype=np.int64)
-        point_coords[0, : points.shape[0], :] = points
-        point_labels[0, : len(click_labels)] = np.array(click_labels, dtype=np.int64)
+        point_coords = points[None, :, :].astype(np.float32)
+        point_labels = np.array(click_labels, dtype=np.int64)[None, :]
         low_res, high_res = predictor.predict(
             image_array, point_coords, point_labels, prev_low_res
         )
@@ -206,23 +193,10 @@ def main() -> None:
     parser.add_argument("--onnx-model", default=r"C:\work space\prp\predict_260107\sam2_interactive.onnx", help="Path to ONNX model")
     parser.add_argument("--image-dir", default=r"C:\work space\prp\predict_260107\demo", help="Directory containing images")
     parser.add_argument("--device", default=None, help="Device to run inference on")
-    parser.add_argument(
-        "--max-points",
-        type=int,
-        default=REQUIRED_MAX_POINTS,
-        help=(
-            "Maximum number of user clicks to keep (oldest clicks are dropped). "
-            f"Fixed at {REQUIRED_MAX_POINTS}."
-        ),
-    )
     args = parser.parse_args()
-    if args.max_points != REQUIRED_MAX_POINTS:
-        raise ValueError(
-            f"--max-points must be {REQUIRED_MAX_POINTS} to match the ONNX model."
-        )
 
     predictor = ONNXPredictor(
-        Path(args.onnx_model), device=args.device, max_points=args.max_points
+        Path(args.onnx_model), device=args.device
     )
 
     image_paths = load_images(Path(args.image_dir))
