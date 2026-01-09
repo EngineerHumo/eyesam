@@ -50,6 +50,39 @@ class SAM2OnnxWrapper(torch.nn.Module):
         super().__init__()
         self.model = model
 
+    def _embed_points(
+        self, point_coords: torch.Tensor, point_labels: torch.Tensor
+    ) -> torch.Tensor:
+        prompt_encoder = self.model.sam_prompt_encoder
+        point_coords = point_coords + 0.5
+
+        padding_point = torch.zeros(
+            (point_coords.shape[0], 1, 2), device=point_coords.device
+        )
+        padding_label = -torch.ones(
+            (point_labels.shape[0], 1), device=point_labels.device
+        )
+        point_coords = torch.cat([point_coords, padding_point], dim=1)
+        point_labels = torch.cat([point_labels, padding_label], dim=1)
+
+        point_coords[:, :, 0] = point_coords[:, :, 0] / self.model.image_size
+        point_coords[:, :, 1] = point_coords[:, :, 1] / self.model.image_size
+
+        point_embedding = prompt_encoder.pe_layer._pe_encoding(point_coords)
+        point_labels = point_labels.unsqueeze(-1).expand_as(point_embedding)
+
+        point_embedding = point_embedding * (point_labels != -1)
+        point_embedding = point_embedding + prompt_encoder.not_a_point_embed.weight * (
+            point_labels == -1
+        )
+
+        for i in range(prompt_encoder.num_point_embeddings):
+            point_embedding = point_embedding + prompt_encoder.point_embeddings[
+                i
+            ].weight * (point_labels == i)
+
+        return point_embedding
+
     def forward(
         self,
         image: torch.Tensor,
@@ -77,10 +110,7 @@ class SAM2OnnxWrapper(torch.nn.Module):
 
         prompt_encoder = self.model.sam_prompt_encoder
         point_labels = point_labels.to(torch.int64)
-        num_points = point_labels.size(1)
-        point_embeddings = prompt_encoder._embed_points(
-            point_coords, point_labels, pad=False
-        )
+        point_embeddings = self._embed_points(point_coords, point_labels)
         sparse_embeddings = point_embeddings
 
         mask_embeddings = prompt_encoder._embed_masks(mask_inputs)
@@ -94,11 +124,7 @@ class SAM2OnnxWrapper(torch.nn.Module):
         mask_flag = has_mask.to(mask_embeddings.dtype)
         dense_embeddings = mask_embeddings * mask_flag + no_mask_embed * (1 - mask_flag)
 
-        multimask_output = (
-            self.model.multimask_output_in_sam
-            and self.model.multimask_min_pt_num <= num_points
-            and num_points <= self.model.multimask_max_pt_num
-        )
+        multimask_output = self.model.multimask_output_in_sam
         (
             low_res_multimasks,
             ious,
@@ -144,7 +170,6 @@ class SAM2OnnxWrapper(torch.nn.Module):
 
 
 def main() -> None:
-    required_max_points = 256
     parser = argparse.ArgumentParser(description="Export SAM2 ONNX model")
     parser.add_argument("--checkpoint", default="/home/wensheng/gjq_workspace/eyesam/exp_log_260107_test1/checkpoints/checkpoint_180.pt", help="Path to model weights")
     parser.add_argument(
@@ -158,21 +183,8 @@ def main() -> None:
         help="Output ONNX path",
     )
     parser.add_argument("--device", default="cpu", help="Device for export")
-    parser.add_argument(
-        "--max-points",
-        type=int,
-        default=required_max_points,
-        help=(
-            "Number of point prompts to export for (must match inference max points). "
-            f"Fixed at {required_max_points}."
-        ),
-    )
     parser.add_argument("--opset", type=int, default=17, help="ONNX opset version")
     args = parser.parse_args()
-    if args.max_points != required_max_points:
-        raise ValueError(
-            f"--max-points must be {required_max_points} to match the exported model."
-        )
 
     config_path = Path(args.config)
     ckpt_path = Path(args.checkpoint)
@@ -190,8 +202,8 @@ def main() -> None:
 
     image_size = model.image_size
     dummy_image = torch.randn(1, 3, image_size, image_size, device=device)
-    dummy_points = torch.zeros(1, args.max_points, 2, device=device)
-    dummy_labels = -torch.ones(1, args.max_points, dtype=torch.int64, device=device)
+    dummy_points = torch.zeros(1, 1, 2, device=device)
+    dummy_labels = -torch.ones(1, 1, dtype=torch.int64, device=device)
     dummy_mask = torch.zeros(
         1, 1, image_size // 4, image_size // 4, device=device
     )
