@@ -389,7 +389,7 @@ def sample_largest_error_region_point(
         other_mask = other_fp | other_fn
         ys, xs = np.where(other_mask > 0)
         if ys.size == 0:
-            return None, None
+            return None
         sel = np.random.randint(ys.size)
         y = ys[sel]
         x = xs[sel]
