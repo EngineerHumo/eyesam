@@ -1,6 +1,6 @@
 scratch:
   resolution: 512
-  train_video_batch_size: 2
+  train_video_batch_size: 16
   num_train_workers: 15
   num_frames: 1
   max_num_objects: 3
@@ -207,7 +207,7 @@ trainer:
     add_all_frames_to_correct_as_cond: true
     num_init_cond_frames_for_train: 1
     rand_init_cond_frames_for_train: false
-    num_correction_pt_per_frame: 0
+    num_correction_pt_per_frame: 7
     use_act_ckpt_iterative_pt_sampling: false
     num_init_cond_frames_for_eval: 1
     forward_backbone_per_frame_for_eval: true
@@ -216,7 +216,7 @@ trainer:
       _target_: training.dataset.sam2_datasets.TorchTrainMixedDataset
       phases_per_epoch: 1
       batch_sizes:
-      - 2
+      - 16
       datasets:
       - _target_: training.dataset.utils.RepeatFactorWrapper
         dataset:
@@ -283,7 +283,7 @@ trainer:
       _target_: training.dataset.sam2_datasets.TorchTrainMixedDataset
       phases_per_epoch: 1
       batch_sizes:
-      - 2
+      - 16
       datasets:
       - _target_: training.dataset.utils.RepeatFactorWrapper
         dataset:
