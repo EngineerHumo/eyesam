@@ -6,7 +6,7 @@
 
 
 import copy
-from typing import Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 import torch
@@ -375,14 +375,28 @@ def sample_largest_error_region_point(
 
     import cv2
 
+    def _sample_random_point_from_other_errors(
+        fp_mask_np: np.ndarray,
+        fn_mask_np: np.ndarray,
+        chosen_mask: Optional[np.ndarray],
+    ):
+        if chosen_mask is None:
+            other_fp = fp_mask_np
+            other_fn = fn_mask_np
+        else:
+            other_fp = fp_mask_np & ~chosen_mask
+            other_fn = fn_mask_np & ~chosen_mask
+        other_mask = other_fp | other_fn
+        ys, xs = np.where(other_mask > 0)
+        if ys.size == 0:
+            return None, None
+        sel = np.random.randint(ys.size)
+        y = ys[sel]
+        x = xs[sel]
+        label = 0 if other_fp[y, x] > 0 else 1
+        return x, y, label
+
     for b in range(B):
-        if torch.rand(1, device=device).item() >= p_largest:
-            rand_points, rand_labels = sample_random_points_from_errors(
-                gt_masks[b : b + 1], pred_masks[b : b + 1]
-            )
-            points[b] = rand_points[0]
-            labels[b] = rand_labels[0]
-            continue
         fp_mask = (~gt_masks[b, 0] & pred_masks[b, 0]).cpu().numpy().astype(np.uint8)
         fn_mask = (gt_masks[b, 0] & ~pred_masks[b, 0]).cpu().numpy().astype(np.uint8)
 
@@ -423,10 +437,51 @@ def sample_largest_error_region_point(
             labels[b] = rand_labels[0]
             continue
 
+        if torch.rand(1, device=device).item() >= p_largest:
+            other_sample = _sample_random_point_from_other_errors(
+                fp_mask, fn_mask, chosen_mask
+            )
+            if other_sample is None:
+                rand_points, rand_labels = sample_random_points_from_errors(
+                    gt_masks[b : b + 1], pred_masks[b : b + 1]
+                )
+                points[b] = rand_points[0]
+                labels[b] = rand_labels[0]
+            else:
+                x, y, label = other_sample
+                points[b, 0, 0] = x
+                points[b, 0, 1] = y
+                labels[b, 0] = label
+            continue
+
         dist = cv2.distanceTransform(chosen_mask, cv2.DIST_L2, 0)
+        max_dist = float(dist.max())
         idx = int(dist.reshape(-1).argmax())
-        points[b, 0, 0] = idx % W_im
-        points[b, 0, 1] = idx // W_im
+        center_x = idx % W_im
+        center_y = idx // W_im
+        if max_dist <= 0:
+            points[b, 0, 0] = center_x
+            points[b, 0, 1] = center_y
+            labels[b, 0] = chosen_label
+            continue
+        radius = max_dist
+        x0 = max(int(center_x - radius), 0)
+        x1 = min(int(center_x + radius) + 1, W_im)
+        y0 = max(int(center_y - radius), 0)
+        y1 = min(int(center_y + radius) + 1, H_im)
+        ys, xs = np.ogrid[y0:y1, x0:x1]
+        circle_mask = (xs - center_x) ** 2 + (ys - center_y) ** 2 <= radius**2
+        region_mask = chosen_mask[y0:y1, x0:x1] > 0
+        valid_mask = circle_mask & region_mask
+        valid_ys, valid_xs = np.where(valid_mask)
+        if valid_ys.size == 0:
+            points[b, 0, 0] = center_x
+            points[b, 0, 1] = center_y
+            labels[b, 0] = chosen_label
+            continue
+        sel = np.random.randint(valid_ys.size)
+        points[b, 0, 0] = valid_xs[sel] + x0
+        points[b, 0, 1] = valid_ys[sel] + y0
         labels[b, 0] = chosen_label
 
     return points, labels
