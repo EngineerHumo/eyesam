@@ -601,7 +601,59 @@ class Trainer:
 
         pred_vis = pred_mask.repeat(3, 1, 1)
         gt_vis = gt_mask.repeat(3, 1, 1)
-        return {"image": img, "pred": pred_vis, "gt": gt_vis}
+        point_coords = None
+        point_labels = None
+        point_inputs_list = frame_outputs.get("multistep_point_inputs")
+        if point_inputs_list:
+            point_inputs = point_inputs_list[-1]
+            if point_inputs is not None:
+                point_coords = point_inputs.get("point_coords")
+                point_labels = point_inputs.get("point_labels")
+                if point_coords is not None and point_labels is not None:
+                    point_coords = (
+                        point_coords[obj_index].detach().float().cpu()
+                    )
+                    point_labels = (
+                        point_labels[obj_index].detach().to(torch.int32).cpu()
+                    )
+        return {
+            "image": img,
+            "pred": pred_vis,
+            "gt": gt_vis,
+            "point_coords": point_coords,
+            "point_labels": point_labels,
+        }
+
+    def _overlay_clicks(
+        self,
+        image: torch.Tensor,
+        point_coords: Optional[torch.Tensor],
+        point_labels: Optional[torch.Tensor],
+        radius: int = 3,
+    ) -> torch.Tensor:
+        if point_coords is None or point_labels is None:
+            return image
+        if point_coords.numel() == 0:
+            return image
+        image_np = image.permute(1, 2, 0).numpy().copy()
+        height, width, _ = image_np.shape
+        for coord, label in zip(point_coords, point_labels):
+            x = int(round(coord[0].item()))
+            y = int(round(coord[1].item()))
+            if x < 0 or x >= width or y < 0 or y >= height:
+                continue
+            color = np.array([0.0, 1.0, 0.0]) if int(label.item()) == 1 else np.array(
+                [1.0, 0.0, 0.0]
+            )
+            x0 = max(0, x - radius)
+            x1 = min(width - 1, x + radius)
+            y0 = max(0, y - radius)
+            y1 = min(height - 1, y + radius)
+            for yy in range(y0, y1 + 1):
+                for xx in range(x0, x1 + 1):
+                    if (xx - x) ** 2 + (yy - y) ** 2 <= radius**2:
+                        image_np[yy, xx] = color
+        return torch.from_numpy(image_np).permute(2, 0, 1)
 
     def _log_visuals(
         self,
@@ -613,16 +665,25 @@ class Trainer:
         triplet = self._extract_visual_triplet(batch, outputs)
         if triplet is None:
             return
-        images = torch.stack(
-            [triplet["image"], triplet["pred"], triplet["gt"]], dim=0
+        images = [triplet["image"], triplet["pred"], triplet["gt"]]
+        click_overlay = self._overlay_clicks(
+            triplet["image"],
+            triplet["point_coords"],
+            triplet["point_labels"],
         )
+        if click_overlay is not triplet["image"]:
+            images.append(click_overlay)
+        images = torch.stack(images, dim=0)
+        caption = "image | pred | gt"
+        if images.size(0) == 4:
+            caption = "image | pred | gt | clicks"
 
         self.logger.log_images(
             f"{phase}/samples",
             images,
             step,
-            nrow=3,
-            caption="image | pred | gt",
+            nrow=images.size(0),
+            caption=caption,
         )
 
     def _should_save_val_visual(self, step: int) -> bool:

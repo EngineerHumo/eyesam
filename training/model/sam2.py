@@ -120,6 +120,76 @@ class SAM2Train(SAM2Base):
             for p in self.image_encoder.parameters():
                 p.requires_grad = False
 
+    def _log_click_region_dice(
+        self,
+        new_points: torch.Tensor,
+        gt_masks: torch.Tensor,
+        pred_before: torch.Tensor,
+        pred_after: torch.Tensor,
+        total_clicks: int,
+        window_size: int = 40,
+    ) -> None:
+        if total_clicks < 2:
+            return
+        if torch.distributed.is_available() and torch.distributed.is_initialized():
+            if torch.distributed.get_rank() != 0:
+                return
+        if new_points is None:
+            return
+        if pred_before.dim() == 4 and pred_before.size(1) > 1:
+            pred_before = pred_before[:, :1]
+        if pred_after.dim() == 4 and pred_after.size(1) > 1:
+            pred_after = pred_after[:, :1]
+        if gt_masks.dim() == 4 and gt_masks.size(1) > 1:
+            gt_masks = gt_masks[:, :1]
+        if pred_before.dim() != 4 or pred_after.dim() != 4 or gt_masks.dim() != 4:
+            return
+
+        half = window_size // 2
+        dices_before = []
+        dices_after = []
+        batch_size = new_points.shape[0]
+        _, _, height, width = gt_masks.shape
+        for b in range(batch_size):
+            x = int(torch.round(new_points[b, 0, 0]).item())
+            y = int(torch.round(new_points[b, 0, 1]).item())
+            x0 = max(0, x - half)
+            x1 = min(width, x + half)
+            y0 = max(0, y - half)
+            y1 = min(height, y + half)
+            if x1 <= x0 or y1 <= y0:
+                continue
+            gt_region = gt_masks[b, 0, y0:y1, x0:x1] > 0
+            pred_before_region = pred_before[b, 0, y0:y1, x0:x1] > 0
+            pred_after_region = pred_after[b, 0, y0:y1, x0:x1] > 0
+            gt_sum = gt_region.sum().item()
+            before_sum = pred_before_region.sum().item()
+            after_sum = pred_after_region.sum().item()
+            inter_before = (pred_before_region & gt_region).sum().item()
+            inter_after = (pred_after_region & gt_region).sum().item()
+            denom_before = before_sum + gt_sum
+            denom_after = after_sum + gt_sum
+            dice_before = (2 * inter_before + 1.0) / (denom_before + 1.0)
+            dice_after = (2 * inter_after + 1.0) / (denom_after + 1.0)
+            dices_before.append(dice_before)
+            dices_after.append(dice_after)
+
+        if not dices_before:
+            return
+
+        avg_before = float(np.mean(dices_before))
+        avg_after = float(np.mean(dices_after))
+        phase = "train" if self.training else "eval"
+        logging.info(
+            "Local click dice (%s) - click=%d window=%dx%d before=%.6f after=%.6f",
+            phase,
+            total_clicks,
+            window_size,
+            window_size,
+            avg_before,
+            avg_after,
+        )
+
     def forward(self, input: BatchedVideoDatapoint):
         if self.training or not self.forward_backbone_per_frame_for_eval:
             # precompute image features on all frames before tracking
@@ -499,6 +569,7 @@ class SAM2Train(SAM2Base):
             object_score_logits,
         )
         for _ in range(self.num_correction_pt_per_frame):
+            pred_before = high_res_masks
             # sample a new point from the error between prediction and ground-truth
             # (with a small probability, directly sample from GT masks instead of errors)
             if self.training and self.prob_to_sample_from_gt_for_train > 0:
@@ -553,6 +624,14 @@ class SAM2Train(SAM2Base):
                 _,
                 object_score_logits,
             ) = sam_outputs
+            total_clicks = point_inputs["point_coords"].shape[1]
+            self._log_click_region_dice(
+                new_points,
+                gt_masks,
+                pred_before,
+                high_res_masks,
+                total_clicks,
+            )
             all_pred_masks.append(low_res_masks)
             all_pred_high_res_masks.append(high_res_masks)
             all_pred_multimasks.append(low_res_multimasks)
