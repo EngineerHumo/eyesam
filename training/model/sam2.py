@@ -61,6 +61,13 @@ class SAM2Train(SAM2Base):
         # instead of the prediction error regions with a small probability. This might allow the
         # model to overfit less to the error regions in training datasets
         prob_to_sample_from_gt_for_train=0.0,
+        init_pt_sampling_for_train="uniform",
+        init_pt_sampling_for_eval="uniform",
+        init_pt_sampling_center_prob=0.7,
+        init_pt_sampling_use_area_norm=True,
+        pt_sampling_for_train="uniform",
+        pt_sampling_largest_region_prob_for_train=0.8,
+        pt_sampling_largest_region_prefer="largest",
         use_act_ckpt_iterative_pt_sampling=False,
         # whether to forward image features per frame (as it's being tracked) during evaluation, instead of forwarding image features
         # of all frames at once. This avoids backbone OOM errors on very long videos in evaluation, but could be slightly slower.
@@ -97,6 +104,15 @@ class SAM2Train(SAM2Base):
         self.num_correction_pt_per_frame = num_correction_pt_per_frame
         self.pt_sampling_for_eval = pt_sampling_for_eval
         self.prob_to_sample_from_gt_for_train = prob_to_sample_from_gt_for_train
+        self.init_pt_sampling_for_train = init_pt_sampling_for_train
+        self.init_pt_sampling_for_eval = init_pt_sampling_for_eval
+        self.init_pt_sampling_center_prob = init_pt_sampling_center_prob
+        self.init_pt_sampling_use_area_norm = init_pt_sampling_use_area_norm
+        self.pt_sampling_for_train = pt_sampling_for_train
+        self.pt_sampling_largest_region_prob_for_train = (
+            pt_sampling_largest_region_prob_for_train
+        )
+        self.pt_sampling_largest_region_prefer = pt_sampling_largest_region_prefer
         # A random number generator with a fixed initial seed across GPUs
         self.rng = np.random.default_rng(seed=42)
 
@@ -238,8 +254,12 @@ class SAM2Train(SAM2Base):
                         gt_masks=gt_masks_per_frame[t],
                         pred_masks=None,
                         method=(
-                            "uniform" if self.training else self.pt_sampling_for_eval
+                            self.init_pt_sampling_for_train
+                            if self.training
+                            else self.init_pt_sampling_for_eval
                         ),
+                        p_center=self.init_pt_sampling_center_prob,
+                        use_area_norm=self.init_pt_sampling_use_area_norm,
                     )
 
                 point_inputs = {"point_coords": points, "point_labels": labels}
@@ -492,7 +512,13 @@ class SAM2Train(SAM2Base):
             new_points, new_labels = get_next_point(
                 gt_masks=gt_masks,
                 pred_masks=pred_for_new_pt,
-                method="uniform" if self.training else self.pt_sampling_for_eval,
+                method=(
+                    self.pt_sampling_for_train
+                    if self.training
+                    else self.pt_sampling_for_eval
+                ),
+                p_largest_region=self.pt_sampling_largest_region_prob_for_train,
+                largest_region_prefer=self.pt_sampling_largest_region_prefer,
             )
             point_inputs = concat_points(point_inputs, new_points, new_labels)
             # Feed the mask logits of the previous SAM outputs in the next SAM decoder step.

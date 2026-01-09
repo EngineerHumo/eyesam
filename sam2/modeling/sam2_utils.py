@@ -314,10 +314,147 @@ def sample_one_point_from_error_center(gt_masks, pred_masks, padding=True):
     return points, labels
 
 
-def get_next_point(gt_masks, pred_masks, method):
+def sample_center_biased_points_from_mask(
+    gt_masks, p_center=0.7, use_area_norm=True
+):
+    if gt_masks.dtype != torch.bool:
+        gt_masks = gt_masks > 0
+    assert gt_masks.dim() == 4 and gt_masks.size(1) == 1
+    B, _, H_im, W_im = gt_masks.shape
+    device = gt_masks.device
+    points = torch.zeros(B, 1, 2, dtype=torch.float32, device=device)
+    labels = torch.ones(B, 1, dtype=torch.int32, device=device)
+
+    import cv2
+
+    for b in range(B):
+        mask = gt_masks[b, 0]
+        if mask.sum() == 0:
+            points[b, 0, 0] = torch.randint(0, W_im, (1,), device=device)
+            points[b, 0, 1] = torch.randint(0, H_im, (1,), device=device)
+            labels[b, 0] = 0
+            continue
+        if torch.rand(1, device=device).item() < p_center:
+            mask_np = mask.cpu().numpy().astype(np.uint8)
+            dist = cv2.distanceTransform(mask_np, cv2.DIST_L2, 0).astype(np.float64)
+            dist_flat = dist.reshape(-1)
+            if use_area_norm and dist_flat.sum() > 0:
+                probs = dist_flat / dist_flat.sum()
+                idx = np.random.choice(dist_flat.size, p=probs)
+            else:
+                ys, xs = np.where(mask_np > 0)
+                sel = np.random.randint(len(xs))
+                idx = ys[sel] * W_im + xs[sel]
+            points[b, 0, 0] = idx % W_im
+            points[b, 0, 1] = idx // W_im
+        else:
+            ys, xs = torch.nonzero(mask, as_tuple=True)
+            sel = torch.randint(0, ys.numel(), (1,), device=device)
+            points[b, 0, 0] = xs[sel]
+            points[b, 0, 1] = ys[sel]
+    return points, labels
+
+
+def sample_largest_error_region_point(
+    gt_masks,
+    pred_masks,
+    p_largest=0.8,
+    largest_region_prefer="largest",
+):
+    if pred_masks is None:
+        return sample_random_points_from_errors(gt_masks, pred_masks)
+    if gt_masks.dtype != torch.bool:
+        gt_masks = gt_masks > 0
+    if pred_masks.dtype != torch.bool:
+        pred_masks = pred_masks > 0
+    assert gt_masks.dim() == 4 and gt_masks.size(1) == 1
+    B, _, H_im, W_im = gt_masks.shape
+    device = gt_masks.device
+    points = torch.zeros(B, 1, 2, dtype=torch.float32, device=device)
+    labels = torch.zeros(B, 1, dtype=torch.int32, device=device)
+
+    import cv2
+
+    for b in range(B):
+        if torch.rand(1, device=device).item() >= p_largest:
+            rand_points, rand_labels = sample_random_points_from_errors(
+                gt_masks[b : b + 1], pred_masks[b : b + 1]
+            )
+            points[b] = rand_points[0]
+            labels[b] = rand_labels[0]
+            continue
+        fp_mask = (~gt_masks[b, 0] & pred_masks[b, 0]).cpu().numpy().astype(np.uint8)
+        fn_mask = (gt_masks[b, 0] & ~pred_masks[b, 0]).cpu().numpy().astype(np.uint8)
+
+        def largest_component(mask_np):
+            if mask_np.sum() == 0:
+                return None, 0
+            _, comp_labels = cv2.connectedComponents(mask_np, connectivity=8)
+            areas = np.bincount(comp_labels.reshape(-1))
+            areas[0] = 0
+            comp_id = areas.argmax()
+            comp_mask = (comp_labels == comp_id).astype(np.uint8)
+            return comp_mask, areas[comp_id]
+
+        fn_comp, fn_area = largest_component(fn_mask)
+        fp_comp, fp_area = largest_component(fp_mask)
+
+        chosen_mask = None
+        chosen_label = 1
+        if largest_region_prefer == "fn":
+            chosen_mask = fn_comp if fn_comp is not None else fp_comp
+            chosen_label = 1 if fn_comp is not None else 0
+        elif largest_region_prefer == "fp":
+            chosen_mask = fp_comp if fp_comp is not None else fn_comp
+            chosen_label = 0 if fp_comp is not None else 1
+        else:
+            if fn_area >= fp_area:
+                chosen_mask = fn_comp if fn_comp is not None else fp_comp
+                chosen_label = 1 if fn_comp is not None else 0
+            else:
+                chosen_mask = fp_comp if fp_comp is not None else fn_comp
+                chosen_label = 0 if fp_comp is not None else 1
+
+        if chosen_mask is None or chosen_mask.sum() == 0:
+            rand_points, rand_labels = sample_random_points_from_errors(
+                gt_masks[b : b + 1], pred_masks[b : b + 1]
+            )
+            points[b] = rand_points[0]
+            labels[b] = rand_labels[0]
+            continue
+
+        dist = cv2.distanceTransform(chosen_mask, cv2.DIST_L2, 0)
+        idx = int(dist.reshape(-1).argmax())
+        points[b, 0, 0] = idx % W_im
+        points[b, 0, 1] = idx // W_im
+        labels[b, 0] = chosen_label
+
+    return points, labels
+
+
+def get_next_point(
+    gt_masks,
+    pred_masks,
+    method,
+    p_center=0.7,
+    p_largest_region=0.8,
+    largest_region_prefer="largest",
+    use_area_norm=True,
+):
     if method == "uniform":
         return sample_random_points_from_errors(gt_masks, pred_masks)
     elif method == "center":
         return sample_one_point_from_error_center(gt_masks, pred_masks)
+    elif method == "center_biased_uniform":
+        return sample_center_biased_points_from_mask(
+            gt_masks, p_center=p_center, use_area_norm=use_area_norm
+        )
+    elif method == "largest_error_center":
+        return sample_largest_error_region_point(
+            gt_masks,
+            pred_masks,
+            p_largest=p_largest_region,
+            largest_region_prefer=largest_region_prefer,
+        )
     else:
         raise ValueError(f"unknown sampling method {method}")

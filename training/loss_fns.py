@@ -17,7 +17,7 @@ from training.trainer import CORE_LOSS_KEY
 from training.utils.distributed import get_world_size, is_dist_avail_and_initialized
 
 
-def dice_loss(inputs, targets, num_objects, loss_on_multimask=False):
+def dice_loss(inputs, targets, num_objects, loss_on_multimask=False, weight_map=None):
     """
     Compute the DICE loss, similar to generalized IOU for masks
     Args:
@@ -38,11 +38,24 @@ def dice_loss(inputs, targets, num_objects, loss_on_multimask=False):
         # flatten spatial dimension while keeping multimask channel dimension
         inputs = inputs.flatten(2)
         targets = targets.flatten(2)
-        numerator = 2 * (inputs * targets).sum(-1)
+        if weight_map is not None:
+            weight_map = _expand_weight_map(weight_map, inputs)
+            weight_map = weight_map.flatten(2)
+            numerator = 2 * (inputs * targets * weight_map).sum(-1)
+            denominator = (inputs + targets) * weight_map
+        else:
+            numerator = 2 * (inputs * targets).sum(-1)
+            denominator = inputs + targets
     else:
         inputs = inputs.flatten(1)
-        numerator = 2 * (inputs * targets).sum(1)
-    denominator = inputs.sum(-1) + targets.sum(-1)
+        if weight_map is not None:
+            weight_map = weight_map.flatten(1)
+            numerator = 2 * (inputs * targets * weight_map).sum(1)
+            denominator = (inputs + targets) * weight_map
+        else:
+            numerator = 2 * (inputs * targets).sum(1)
+            denominator = inputs + targets
+    denominator = denominator.sum(-1)
     loss = 1 - (numerator + 1) / (denominator + 1)
     if loss_on_multimask:
         return loss / num_objects
@@ -56,6 +69,7 @@ def sigmoid_focal_loss(
     alpha: float = 0.25,
     gamma: float = 2,
     loss_on_multimask=False,
+    weight_map=None,
 ):
     """
     Loss used in RetinaNet for dense detection: https://arxiv.org/abs/1708.02002.
@@ -83,11 +97,29 @@ def sigmoid_focal_loss(
         alpha_t = alpha * targets + (1 - alpha) * (1 - targets)
         loss = alpha_t * loss
 
+    if weight_map is not None:
+        weight_map = _expand_weight_map(weight_map, loss)
+        loss = loss * weight_map
     if loss_on_multimask:
         # loss is [N, M, H, W] where M corresponds to multiple predicted masks
         assert loss.dim() == 4
-        return loss.flatten(2).mean(-1) / num_objects  # average over spatial dims
-    return loss.mean(1).sum() / num_objects
+        if weight_map is None:
+            return loss.flatten(2).mean(-1) / num_objects  # average over spatial dims
+        weight_sum = weight_map.flatten(2).sum(-1).clamp_min(1.0)
+        return loss.flatten(2).sum(-1) / weight_sum / num_objects
+    if weight_map is None:
+        return loss.mean(1).sum() / num_objects
+    weight_sum = weight_map.flatten(1).sum(-1).clamp_min(1.0)
+    weighted_loss = loss.flatten(1).sum(-1) / weight_sum
+    return weighted_loss.sum() / num_objects
+
+
+def _expand_weight_map(weight_map, loss_tensor):
+    if weight_map.dim() == 3:
+        weight_map = weight_map.unsqueeze(1)
+    if weight_map.shape[1] == 1 and loss_tensor.dim() == 4 and loss_tensor.shape[1] > 1:
+        weight_map = weight_map.expand(-1, loss_tensor.shape[1], -1, -1)
+    return weight_map
 
 
 def iou_loss(
@@ -134,6 +166,10 @@ class MultiStepMultiMasksAndIous(nn.Module):
         pred_obj_scores=False,
         focal_gamma_obj_score=0.0,
         focal_alpha_obj_score=-1,
+        click_loss_start_step=1,
+        click_loss_sigma_base=60.0,
+        click_loss_sigma_decay=6.0,
+        click_loss_min_sigma=6.0,
     ):
         """
         This class computes the multi-step multi-mask and IoU losses.
@@ -163,6 +199,10 @@ class MultiStepMultiMasksAndIous(nn.Module):
         self.supervise_all_iou = supervise_all_iou
         self.iou_use_l1_loss = iou_use_l1_loss
         self.pred_obj_scores = pred_obj_scores
+        self.click_loss_start_step = click_loss_start_step
+        self.click_loss_sigma_base = click_loss_sigma_base
+        self.click_loss_sigma_decay = click_loss_sigma_decay
+        self.click_loss_min_sigma = click_loss_min_sigma
 
     def forward(self, outs_batch: List[Dict], targets_batch: torch.Tensor):
         assert len(outs_batch) == len(targets_batch)
@@ -200,24 +240,46 @@ class MultiStepMultiMasksAndIous(nn.Module):
         src_masks_list = outputs["multistep_pred_multimasks_high_res"]
         ious_list = outputs["multistep_pred_ious"]
         object_score_logits_list = outputs["multistep_object_score_logits"]
+        point_inputs_list = outputs.get("multistep_point_inputs")
 
         assert len(src_masks_list) == len(ious_list)
         assert len(object_score_logits_list) == len(ious_list)
 
         # accumulate the loss over prediction steps
         losses = {"loss_mask": 0, "loss_dice": 0, "loss_iou": 0, "loss_class": 0}
-        for src_masks, ious, object_score_logits in zip(
-            src_masks_list, ious_list, object_score_logits_list
+        for step_index, (src_masks, ious, object_score_logits) in enumerate(
+            zip(src_masks_list, ious_list, object_score_logits_list)
         ):
+            point_inputs = None
+            if point_inputs_list is not None and step_index < len(point_inputs_list):
+                point_inputs = point_inputs_list[step_index]
             self._update_losses(
-                losses, src_masks, target_masks, ious, num_objects, object_score_logits
+                losses,
+                src_masks,
+                target_masks,
+                ious,
+                num_objects,
+                object_score_logits,
+                point_inputs,
+                step_index,
             )
         losses[CORE_LOSS_KEY] = self.reduce_loss(losses)
         return losses
 
     def _update_losses(
-        self, losses, src_masks, target_masks, ious, num_objects, object_score_logits
+        self,
+        losses,
+        src_masks,
+        target_masks,
+        ious,
+        num_objects,
+        object_score_logits,
+        point_inputs=None,
+        step_index=0,
     ):
+        weight_map = self._build_click_weight_map(
+            point_inputs, target_masks, step_index
+        )
         target_masks = target_masks.expand_as(src_masks)
         # get focal, dice and iou loss on all output masks in a prediction step
         loss_multimask = sigmoid_focal_loss(
@@ -227,9 +289,14 @@ class MultiStepMultiMasksAndIous(nn.Module):
             alpha=self.focal_alpha,
             gamma=self.focal_gamma,
             loss_on_multimask=True,
+            weight_map=weight_map,
         )
         loss_multidice = dice_loss(
-            src_masks, target_masks, num_objects, loss_on_multimask=True
+            src_masks,
+            target_masks,
+            num_objects,
+            loss_on_multimask=True,
+            weight_map=weight_map,
         )
         if not self.pred_obj_scores:
             loss_class = torch.tensor(
@@ -305,3 +372,42 @@ class MultiStepMultiMasksAndIous(nn.Module):
                 reduced_loss += losses[loss_key] * weight
 
         return reduced_loss
+
+    def _build_click_weight_map(self, point_inputs, target_masks, step_index):
+        if step_index < self.click_loss_start_step:
+            return None
+        if not point_inputs:
+            return None
+        point_coords = point_inputs.get("point_coords")
+        point_labels = point_inputs.get("point_labels")
+        if point_coords is None:
+            return None
+        device = target_masks.device
+        dtype = target_masks.dtype
+        batch_size, _, height, width = target_masks.shape
+        sigma = max(
+            self.click_loss_min_sigma,
+            self.click_loss_sigma_base
+            - (step_index + 1) * self.click_loss_sigma_decay,
+        )
+        if sigma <= 0:
+            return None
+        yy = torch.arange(height, device=device, dtype=dtype).view(1, height, 1)
+        xx = torch.arange(width, device=device, dtype=dtype).view(1, 1, width)
+        weight_map = torch.ones(
+            batch_size, 1, height, width, device=device, dtype=dtype
+        )
+        sigma_sq = 2 * (sigma**2)
+        for b in range(batch_size):
+            coords = point_coords[b]
+            if point_labels is not None:
+                valid = point_labels[b] >= 0
+                coords = coords[valid]
+            if coords.numel() == 0:
+                continue
+            for pt in coords:
+                x = pt[0].to(dtype=dtype)
+                y = pt[1].to(dtype=dtype)
+                gaussian = torch.exp(-((xx - x) ** 2 + (yy - y) ** 2) / sigma_sq)
+                weight_map[b, 0] = weight_map[b, 0] + gaussian
+        return weight_map
