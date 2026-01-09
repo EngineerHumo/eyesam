@@ -50,6 +50,39 @@ class SAM2OnnxWrapper(torch.nn.Module):
         super().__init__()
         self.model = model
 
+    def _embed_points(
+        self, point_coords: torch.Tensor, point_labels: torch.Tensor
+    ) -> torch.Tensor:
+        prompt_encoder = self.model.sam_prompt_encoder
+        point_coords = point_coords + 0.5
+
+        padding_point = torch.zeros(
+            (point_coords.shape[0], 1, 2), device=point_coords.device
+        )
+        padding_label = -torch.ones(
+            (point_labels.shape[0], 1), device=point_labels.device
+        )
+        point_coords = torch.cat([point_coords, padding_point], dim=1)
+        point_labels = torch.cat([point_labels, padding_label], dim=1)
+
+        point_coords[:, :, 0] = point_coords[:, :, 0] / self.model.image_size
+        point_coords[:, :, 1] = point_coords[:, :, 1] / self.model.image_size
+
+        point_embedding = prompt_encoder.pe_layer._pe_encoding(point_coords)
+        point_labels = point_labels.unsqueeze(-1).expand_as(point_embedding)
+
+        point_embedding = point_embedding * (point_labels != -1)
+        point_embedding = point_embedding + prompt_encoder.not_a_point_embed.weight * (
+            point_labels == -1
+        )
+
+        for i in range(prompt_encoder.num_point_embeddings):
+            point_embedding = point_embedding + prompt_encoder.point_embeddings[
+                i
+            ].weight * (point_labels == i)
+
+        return point_embedding
+
     def forward(
         self,
         image: torch.Tensor,
@@ -77,9 +110,7 @@ class SAM2OnnxWrapper(torch.nn.Module):
 
         prompt_encoder = self.model.sam_prompt_encoder
         point_labels = point_labels.to(torch.int64)
-        point_embeddings = prompt_encoder._embed_points(
-            point_coords, point_labels, pad=True
-        )
+        point_embeddings = self._embed_points(point_coords, point_labels)
         sparse_embeddings = point_embeddings
 
         mask_embeddings = prompt_encoder._embed_masks(mask_inputs)
