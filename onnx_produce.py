@@ -171,7 +171,7 @@ class SAM2OnnxWrapper(torch.nn.Module):
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Export SAM2 ONNX model")
-    parser.add_argument("--checkpoint", default="/home/wensheng/gjq_workspace/eyesam/exp_log_260108_test4_onlyfirst/checkpoints/best_dice_epoch_0277_first_0p784246_final_0p784246.pt", help="Path to model weights")
+    parser.add_argument("--checkpoint", default="/home/wensheng/gjq_workspace/eyesam/exp_log/checkpoints/best_dice_epoch_0107_first_0p682702_final_0p908944.pt", help="Path to model weights")
     parser.add_argument(
         "--config",
         default="sam2/configs/sam2.1_hiera_tiny512_laser.yaml",
@@ -179,7 +179,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--output",
-        default="test4_best277.onnx",
+        default="test5_best107.onnx",
         help="Output ONNX path",
     )
     parser.add_argument("--device", default="cpu", help="Device for export")
