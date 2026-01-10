@@ -9,7 +9,7 @@ scratch:
   phases_per_epoch: 1
   num_epochs: 400
 dataset:
-  folder: /home/wensheng/gjq_workspace/eyesam/data/Retina_Project
+  folder: /home/wensheng/gjq_workspace/eyesam/data/Retina_Project_faz
   multiplier: 1
 vos:
   train_transforms:
@@ -196,18 +196,20 @@ trainer:
     multimask_min_pt_num: 0
     multimask_max_pt_num: 1
     use_mlp_for_obj_ptr_proj: true
-    prob_to_use_pt_input_for_train: 1.0
-    prob_to_use_pt_input_for_eval: 1.0
+    prob_to_use_pt_input_for_train: 0.0
+    prob_to_use_pt_input_for_eval: 0.0
     prob_to_use_box_input_for_train: 0.0
     prob_to_use_box_input_for_eval: 0.0
+    force_pt_input_for_single_frame: false
+    use_mask_input_for_init_cond_frames: false
     prob_to_sample_from_gt_for_train: 0.1
-    num_frames_to_correct_for_train: 1
-    num_frames_to_correct_for_eval: 1
+    num_frames_to_correct_for_train: 0
+    num_frames_to_correct_for_eval: 0
     rand_frames_to_correct_for_train: false
     add_all_frames_to_correct_as_cond: true
     num_init_cond_frames_for_train: 1
     rand_init_cond_frames_for_train: false
-    num_correction_pt_per_frame: 7
+    num_correction_pt_per_frame: 0
     init_pt_sampling_for_train: center_biased_uniform
     init_pt_sampling_for_eval: center_biased_uniform
     init_pt_sampling_center_prob: 0.7
@@ -272,7 +274,7 @@ trainer:
             training: true
             video_dataset:
               _target_: training.dataset.vos_raw_dataset.NPZRawDataset
-              folder: /home/wensheng/gjq_workspace/eyesam/data/Retina_Project/train_npz
+              folder: /home/wensheng/gjq_workspace/eyesam/data/Retina_Project_faz/train_npz
             sampler:
               _target_: training.dataset.vos_sampler.RandomUniformSampler
               num_frames: 1
@@ -317,7 +319,7 @@ trainer:
             training: false
             video_dataset:
               _target_: training.dataset.vos_raw_dataset.NPZRawDataset
-              folder: /home/wensheng/gjq_workspace/eyesam/data/Retina_Project/val_npz
+              folder: /home/wensheng/gjq_workspace/eyesam/data/Retina_Project_faz/val_npz
             sampler:
               _target_: training.dataset.vos_sampler.RandomUniformSampler
               num_frames: 1
