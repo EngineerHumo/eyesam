@@ -59,6 +59,12 @@ def place_circles_on_arc(arc: np.ndarray, min_distance: int = 50) -> List[Tuple[
             centers.append((int(point[0]), int(point[1])))
             cum_dist = 0.0
         last_point = point
+    if len(centers) > 1:
+        first = centers[0]
+        last = centers[-1]
+        wrap_dist = math.hypot(last[0] - first[0], last[1] - first[1])
+        if wrap_dist < min_distance:
+            centers.pop()
     return centers
 
 
@@ -86,9 +92,6 @@ def plan_surgery(
             centers = place_circles_on_arc(segment, min_distance=50)
             all_centers.extend(centers)
         radius += radius_step
-
-    for curve in all_curve_points:
-        draw.line([tuple(pt) for pt in curve], fill=(255, 0, 0), width=2)
 
     circle_radius = 12
     for center in all_centers:

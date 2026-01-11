@@ -101,8 +101,15 @@ class OnnxModel:
         inputs: Dict[str, np.ndarray] = {}
         for name, shape in self.io.input_shapes.items():
             if "has_mask" in name:
-                inputs[name] = np.array([1 if mask_input is not None else 0], dtype=np.float32)
+                mask_value = 1 if mask_input is not None else 0
+                shape_dims = [1 if dim in (-1, None) else int(dim) for dim in shape]
+                if len(shape_dims) == 0:
+                    inputs[name] = np.array(mask_value, dtype=np.float32)
+                else:
+                    inputs[name] = np.full(shape_dims, mask_value, dtype=np.float32)
         for name, shape in self.io.input_shapes.items():
+            if "has_mask" in name:
+                continue
             if "mask_input" in name or "mask_inputs" in name or (
                 len(shape) == 4 and shape[1] == 1
             ):

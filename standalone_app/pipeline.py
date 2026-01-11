@@ -98,7 +98,23 @@ class SurgicalPipeline:
             (faz_image.original_pil.width, faz_image.original_pil.height),
         )
         plan = plan_surgery(faz_image.original_pil, display_mask, faz_center)
-        return display_mask, current_result.logits, current_click, faz_center, plan
+        faz_display_mask = resize_mask(
+            faz_result.mask,
+            (faz_image.original_pil.width, faz_image.original_pil.height),
+        )
+        area_display_mask = resize_mask(
+            area_result.mask,
+            (area_image.original_pil.width, area_image.original_pil.height),
+        )
+        return (
+            display_mask,
+            current_result.logits,
+            current_click,
+            faz_center,
+            plan,
+            area_display_mask,
+            faz_display_mask,
+        )
 
     def run_iteration(
         self,

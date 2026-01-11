@@ -43,6 +43,7 @@ class MainWindow:
         self.plan: Optional[PlanResult] = None
         self.faz_center: Optional[tuple[int, int]] = None
         self.last_auto_click: Optional[tuple[int, int]] = None
+        self.mask_windows: List[tk.Toplevel] = []
 
         self._setup_fonts()
         self._setup_ui()
@@ -153,7 +154,15 @@ class MainWindow:
             scale_y=model_size[1] / image.height,
         )
 
-        mask, logits, last_click, faz_center, plan = self.pipeline.run_initial(image, model_size)
+        (
+            mask,
+            logits,
+            last_click,
+            faz_center,
+            plan,
+            area_mask,
+            faz_mask,
+        ) = self.pipeline.run_initial(image, model_size)
         self.state.current_mask = mask
         self.state.current_logits = logits
         self.state.clicks = []
@@ -165,6 +174,25 @@ class MainWindow:
         self.faz_center = faz_center
         self.last_auto_click = last_click
         self._render_overlay(plan.overlay)
+        self._show_mask_windows(area_mask, faz_mask)
+
+    def _show_mask_windows(self, area_mask: np.ndarray, faz_mask: np.ndarray) -> None:
+        for window in self.mask_windows:
+            window.destroy()
+        self.mask_windows.clear()
+
+        def show_mask(title: str, mask: np.ndarray) -> None:
+            window = tk.Toplevel(self.root)
+            window.title(title)
+            mask_img = Image.fromarray((mask * 255).astype(np.uint8), mode="L")
+            photo = ImageTk.PhotoImage(mask_img)
+            label = tk.Label(window, image=photo)
+            label.image = photo
+            label.pack()
+            self.mask_windows.append(window)
+
+        show_mask("area_mask", area_mask)
+        show_mask("faz_mask", faz_mask)
 
     def _render_overlay(self, overlay: Image.Image) -> None:
         self.display_image = ImageTk.PhotoImage(overlay)
