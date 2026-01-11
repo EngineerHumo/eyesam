@@ -102,7 +102,15 @@ class OnnxModel:
         for name, shape in self.io.input_shapes.items():
             if "has_mask" in name:
                 mask_value = 1 if mask_input is not None else 0
-                shape_dims = [1 if dim in (-1, None) else int(dim) for dim in shape]
+                shape_dims = []
+                for dim in shape:
+                    if dim in (-1, None):
+                        shape_dims.append(1)
+                        continue
+                    try:
+                        shape_dims.append(int(dim))
+                    except (TypeError, ValueError):
+                        shape_dims.append(1)
                 if len(shape_dims) == 0:
                     inputs[name] = np.array(mask_value, dtype=np.float32)
                 else:
