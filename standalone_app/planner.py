@@ -28,6 +28,8 @@ def extract_arc_segments(mask: np.ndarray, center: Tuple[int, int], radius: floa
     )
     coords = coords[valid]
     coords_int = np.round(coords).astype(int)
+    coords_int[:, 0] = np.clip(coords_int[:, 0], 0, w - 1)
+    coords_int[:, 1] = np.clip(coords_int[:, 1], 0, h - 1)
     inside = mask[coords_int[:, 1], coords_int[:, 0]] > 0
 
     segments: List[List[Tuple[int, int]]] = []
