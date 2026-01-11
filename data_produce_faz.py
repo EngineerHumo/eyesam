@@ -113,12 +113,12 @@ def process_split(
     counter = start_index
     for case_dir in case_dirs:
         image_path = case_dir / "image.png"
-        mask_path = case_dir / "aux_1.png"
+        mask_path = case_dir / "aux_3.png"
         if not image_path.exists():
             logging.warning("Missing image.png in %s, skipping.", case_dir)
             continue
         if not mask_path.exists():
-            logging.warning("Missing aux_1.png in %s, skipping.", case_dir)
+            logging.warning("Missing aux_3.png in %s, skipping.", case_dir)
             continue
 
         try:
@@ -156,7 +156,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--root",
         type=Path,
-        default=Path("/home/wensheng/gjq_workspace/eyesam/data/Retina_Project_faz"),
+        default=Path("/home/wensheng/gjq_workspace/eyesam/data/Retina_Project_seg"),
         help="Root directory containing train/ and val/ folders.",
     )
     parser.add_argument(
