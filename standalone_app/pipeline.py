@@ -51,12 +51,13 @@ class SurgicalPipeline:
         faz_result = self._infer_mask(self.faz_model, faz_image)
         area_result = self._infer_mask(self.area_model, area_image)
 
-        area_bin = binarize_mask(area_result.mask)
+        area_display_mask = resize_mask(
+            area_result.mask,
+            (area_image.original_pil.width, area_image.original_pil.height),
+        )
+        area_bin = binarize_mask(area_display_mask)
         area_lcc = largest_connected_component(area_bin)
-        click0_raw = inscribed_center(area_lcc)
-        scale_x_area = area_image.original_pil.width / area_image.resized_np.shape[1]
-        scale_y_area = area_image.original_pil.height / area_image.resized_np.shape[0]
-        click0 = (int(click0_raw[0] * scale_x_area), int(click0_raw[1] * scale_y_area))
+        click0 = inscribed_center(area_lcc)
         LOGGER.info("auto_click0=(%d,%d)", click0[0], click0[1])
 
         first_clicks = self._prepare_click(click0, label=1)
@@ -89,23 +90,16 @@ class SurgicalPipeline:
                 clicks=click_list,
             )
 
-        faz_center_raw = compute_faz_center(faz_result.mask)
-        scale_x = faz_image.original_pil.width / faz_image.resized_np.shape[1]
-        scale_y = faz_image.original_pil.height / faz_image.resized_np.shape[0]
-        faz_center = (int(faz_center_raw[0] * scale_x), int(faz_center_raw[1] * scale_y))
+        faz_display_mask = resize_mask(
+            faz_result.mask,
+            (faz_image.original_pil.width, faz_image.original_pil.height),
+        )
+        faz_center = compute_faz_center(faz_display_mask)
         display_mask = resize_mask(
             current_result.mask,
             (faz_image.original_pil.width, faz_image.original_pil.height),
         )
         plan = plan_surgery(faz_image.original_pil, display_mask, faz_center)
-        faz_display_mask = resize_mask(
-            faz_result.mask,
-            (faz_image.original_pil.width, faz_image.original_pil.height),
-        )
-        area_display_mask = resize_mask(
-            area_result.mask,
-            (area_image.original_pil.width, area_image.original_pil.height),
-        )
         return (
             display_mask,
             current_result.logits,
