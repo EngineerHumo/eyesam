@@ -134,7 +134,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Export SAM2 ONNX model (auto)")
     parser.add_argument(
         "--checkpoint",
-        default="/home/wensheng/gjq_workspace/eyesam/exp_log/checkpoints/best_dice_epoch_0107_first_0p682702_final_0p908944.pt",
+        default="/home/wensheng/gjq_workspace/eyesam/exp_log_260110_faz/checkpoints/best_dice_epoch_0295_first_0p900615_final_0p900615.pt",
         help="Path to model weights",
     )
     parser.add_argument(
@@ -144,7 +144,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--output",
-        default="faz_auto.onnx",
+        default="faz.onnx",
         help="Output ONNX path",
     )
     parser.add_argument("--device", default="cpu", help="Device for export")

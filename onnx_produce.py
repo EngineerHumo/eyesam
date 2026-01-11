@@ -179,7 +179,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--output",
-        default="test5_best107.onnx",
+        default="onnx/first.onnx",
         help="Output ONNX path",
     )
     parser.add_argument("--device", default="cpu", help="Device for export")
