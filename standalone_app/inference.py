@@ -95,18 +95,26 @@ class OnnxModel:
                 inputs[name] = points.astype(np.float32)
         return inputs
 
-    def _resolve_mask_inputs(self, mask_input: Optional[np.ndarray]) -> Dict[str, np.ndarray]:
-        inputs = {}
+    def _resolve_mask_inputs(
+        self, mask_input: Optional[np.ndarray], resized_hw: Tuple[int, int]
+    ) -> Dict[str, np.ndarray]:
+        inputs: Dict[str, np.ndarray] = {}
         for name, shape in self.io.input_shapes.items():
             if "has_mask" in name:
                 inputs[name] = np.array([1 if mask_input is not None else 0], dtype=np.float32)
-        if mask_input is None:
-            return inputs
         for name, shape in self.io.input_shapes.items():
-            if len(shape) == 4 and shape[1] == 1:
-                inputs[name] = mask_input.astype(np.float32)
-            if "mask_input" in name or "mask_inputs" in name:
-                inputs[name] = mask_input.astype(np.float32)
+            if "mask_input" in name or "mask_inputs" in name or (
+                len(shape) == 4 and shape[1] == 1
+            ):
+                if mask_input is not None:
+                    inputs[name] = mask_input.astype(np.float32)
+                    continue
+                shape_h = shape[2]
+                shape_w = shape[3]
+                if shape_h in (-1, None) or shape_w in (-1, None):
+                    shape_h = resized_hw[0] // 4
+                    shape_w = resized_hw[1] // 4
+                inputs[name] = np.zeros((1, 1, int(shape_h), int(shape_w)), dtype=np.float32)
         return inputs
 
     def _resolve_orig_size_inputs(self, orig_hw: Tuple[int, int]) -> Dict[str, np.ndarray]:
@@ -127,7 +135,7 @@ class OnnxModel:
         feed = {}
         feed.update(self._resolve_image_input(image))
         feed.update(self._resolve_points_inputs(clicks, resized_hw, orig_hw))
-        feed.update(self._resolve_mask_inputs(mask_input))
+        feed.update(self._resolve_mask_inputs(mask_input, resized_hw))
         feed.update(self._resolve_orig_size_inputs(orig_hw))
 
         outputs = self.session.run(self.io.output_names, feed)
