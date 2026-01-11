@@ -73,6 +73,25 @@ def binarize_mask(mask: np.ndarray, threshold: float = 0.5) -> np.ndarray:
     return (mask >= threshold).astype(np.uint8)
 
 
+def fill_small_holes(mask: np.ndarray, area_threshold: int = 200) -> np.ndarray:
+    if mask.ndim != 2:
+        raise ValueError("mask must be 2D")
+    binary = (mask > 0).astype(np.uint8)
+    inverted = (1 - binary).astype(np.uint8)
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(inverted, connectivity=8)
+    h, w = binary.shape
+    filled = binary.copy()
+    for label in range(1, num_labels):
+        x, y, width, height, area = stats[label]
+        if area >= area_threshold:
+            continue
+        touches_border = x == 0 or y == 0 or x + width == w or y + height == h
+        if touches_border:
+            continue
+        filled[labels == label] = 1
+    return filled
+
+
 def sigmoid(x: np.ndarray) -> np.ndarray:
     return 1 / (1 + np.exp(-x))
 
