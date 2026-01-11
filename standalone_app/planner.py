@@ -51,22 +51,14 @@ def place_circles_on_arc(arc: np.ndarray, min_distance: int = 50) -> List[Tuple[
     centers: List[Tuple[int, int]] = []
     if len(arc) < 2:
         return centers
-    cum_dist = 0.0
-    last_point = arc[0]
-    centers.append((int(last_point[0]), int(last_point[1])))
-    for point in arc[1:]:
-        dist = math.hypot(point[0] - last_point[0], point[1] - last_point[1])
-        cum_dist += dist
-        if cum_dist >= min_distance:
-            centers.append((int(point[0]), int(point[1])))
-            cum_dist = 0.0
-        last_point = point
-    if len(centers) > 1:
-        first = centers[0]
-        last = centers[-1]
-        wrap_dist = math.hypot(last[0] - first[0], last[1] - first[1])
-        if wrap_dist < min_distance:
-            centers.pop()
+    min_dist_sq = min_distance * min_distance
+    for point in arc:
+        candidate = (int(point[0]), int(point[1]))
+        if all(
+            (candidate[0] - cx) ** 2 + (candidate[1] - cy) ** 2 >= min_dist_sq
+            for cx, cy in centers
+        ):
+            centers.append(candidate)
     return centers
 
 
@@ -81,7 +73,15 @@ def plan_surgery(
 
     mask_bin = binarize_mask(mask)
     h, w = mask_bin.shape
-    max_radius = int(min(w, h) / 2)
+    cx, cy = faz_center
+    max_radius = int(
+        max(
+            math.hypot(cx, cy),
+            math.hypot(cx, h - 1 - cy),
+            math.hypot(w - 1 - cx, cy),
+            math.hypot(w - 1 - cx, h - 1 - cy),
+        )
+    )
 
     all_curve_points: List[np.ndarray] = []
     all_centers: List[Tuple[int, int]] = []
