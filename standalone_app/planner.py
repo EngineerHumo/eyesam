@@ -51,14 +51,22 @@ def place_circles_on_arc(arc: np.ndarray, min_distance: int = 50) -> List[Tuple[
     centers: List[Tuple[int, int]] = []
     if len(arc) < 2:
         return centers
-    min_dist_sq = min_distance * min_distance
-    for point in arc:
-        candidate = (int(point[0]), int(point[1]))
-        if all(
-            (candidate[0] - cx) ** 2 + (candidate[1] - cy) ** 2 >= min_dist_sq
-            for cx, cy in centers
-        ):
-            centers.append(candidate)
+    arc_points = arc.astype(np.float32)
+    deltas = np.diff(arc_points, axis=0)
+    seg_lengths = np.sqrt((deltas**2).sum(axis=1))
+    cum_dist = np.insert(np.cumsum(seg_lengths), 0, 0.0)
+    total_length = cum_dist[-1]
+    if total_length < min_distance:
+        first = arc_points[0]
+        return [(int(first[0]), int(first[1]))]
+
+    num_points = max(1, int(total_length // min_distance))
+    targets = np.linspace(0.0, total_length, num_points + 1, endpoint=False)
+    for target in targets:
+        idx = int(np.searchsorted(cum_dist, target, side="right") - 1)
+        idx = max(0, min(idx, len(arc_points) - 1))
+        point = arc_points[idx]
+        centers.append((int(point[0]), int(point[1])))
     return centers
 
 

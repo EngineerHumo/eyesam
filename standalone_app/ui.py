@@ -43,7 +43,6 @@ class MainWindow:
         self.plan: Optional[PlanResult] = None
         self.faz_center: Optional[tuple[int, int]] = None
         self.last_auto_click: Optional[tuple[int, int]] = None
-        self.mask_windows: List[tk.Toplevel] = []
 
         self._setup_fonts()
         self._setup_ui()
@@ -69,8 +68,19 @@ class MainWindow:
         main_frame = tk.Frame(self.root)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        self.canvas = tk.Canvas(main_frame, bg="gray")
-        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        canvas_frame = tk.Frame(main_frame)
+        canvas_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        self.canvas = tk.Canvas(canvas_frame, bg="gray")
+        self.h_scroll = tk.Scrollbar(canvas_frame, orient=tk.HORIZONTAL, command=self.canvas.xview)
+        self.v_scroll = tk.Scrollbar(canvas_frame, orient=tk.VERTICAL, command=self.canvas.yview)
+        self.canvas.configure(xscrollcommand=self.h_scroll.set, yscrollcommand=self.v_scroll.set)
+
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+        self.v_scroll.grid(row=0, column=1, sticky="ns")
+        self.h_scroll.grid(row=1, column=0, sticky="ew")
+        canvas_frame.grid_rowconfigure(0, weight=1)
+        canvas_frame.grid_columnconfigure(0, weight=1)
         self.canvas.bind("<Button-1>", self.on_canvas_click)
 
         button_frame = tk.Frame(main_frame)
@@ -160,8 +170,8 @@ class MainWindow:
             last_click,
             faz_center,
             plan,
-            area_mask,
-            faz_mask,
+            _area_mask,
+            _faz_mask,
         ) = self.pipeline.run_initial(image, model_size)
         self.state.current_mask = mask
         self.state.current_logits = logits
@@ -174,31 +184,13 @@ class MainWindow:
         self.faz_center = faz_center
         self.last_auto_click = last_click
         self._render_overlay(plan.overlay)
-        self._show_mask_windows(area_mask, faz_mask)
-
-    def _show_mask_windows(self, area_mask: np.ndarray, faz_mask: np.ndarray) -> None:
-        for window in self.mask_windows:
-            window.destroy()
-        self.mask_windows.clear()
-
-        def show_mask(title: str, mask: np.ndarray) -> None:
-            window = tk.Toplevel(self.root)
-            window.title(title)
-            mask_img = Image.fromarray((mask * 255).astype(np.uint8), mode="L")
-            photo = ImageTk.PhotoImage(mask_img)
-            label = tk.Label(window, image=photo)
-            label.image = photo
-            label.pack()
-            self.mask_windows.append(window)
-
-        show_mask("area_mask", area_mask)
-        show_mask("faz_mask", faz_mask)
 
     def _render_overlay(self, overlay: Image.Image) -> None:
         self.display_image = ImageTk.PhotoImage(overlay)
         self.canvas.delete("all")
         self.canvas.config(width=overlay.width, height=overlay.height)
         self.canvas.create_image(0, 0, image=self.display_image, anchor=tk.NW)
+        self.canvas.configure(scrollregion=(0, 0, overlay.width, overlay.height))
 
     def on_canvas_click(self, event) -> None:
         if self.state.mode == "none":
