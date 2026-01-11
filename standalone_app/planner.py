@@ -60,14 +60,22 @@ def place_circles_on_arc(arc: np.ndarray, min_distance: int = 50) -> List[Tuple[
         first = arc_points[0]
         return [(int(first[0]), int(first[1]))]
 
-    num_points = max(1, int(total_length // min_distance))
+    num_points = max(1, int(math.ceil(total_length / min_distance)))
     targets = np.linspace(0.0, total_length, num_points + 1, endpoint=False)
     for target in targets:
         idx = int(np.searchsorted(cum_dist, target, side="right") - 1)
         idx = max(0, min(idx, len(arc_points) - 1))
         point = arc_points[idx]
         centers.append((int(point[0]), int(point[1])))
-    return centers
+    filtered: List[Tuple[int, int]] = []
+    min_dist_sq = min_distance * min_distance
+    for candidate in centers:
+        if all(
+            (candidate[0] - cx) ** 2 + (candidate[1] - cy) ** 2 > min_dist_sq
+            for cx, cy in filtered
+        ):
+            filtered.append(candidate)
+    return filtered
 
 
 def plan_surgery(
