@@ -102,52 +102,90 @@ class MainWindow:
         button_frame = tk.Frame(main_frame)
         button_frame.pack(side=tk.RIGHT, fill=tk.Y)
 
-        top_button_frame = tk.Frame(button_frame)
-        top_button_frame.pack(side=tk.TOP, fill=tk.X)
-        bottom_button_frame = tk.Frame(button_frame)
-        bottom_button_frame.pack(side=tk.BOTTOM, fill=tk.X)
+        ai_tool_frame = tk.Frame(button_frame, relief=tk.GROOVE, borderwidth=2)
+        ai_tool_frame.pack(side=tk.TOP, fill=tk.X, padx=8, pady=8)
+
+        tk.Label(ai_tool_frame, text="AI工具", font=tkfont.Font(weight="bold")).pack(
+            pady=(6, 4)
+        )
 
         self.btn_positive = tk.Button(
-            top_button_frame, text="正向点击点", width=12, command=self.toggle_positive
+            ai_tool_frame, text="正向点击点", width=12, command=self.toggle_positive
         )
         self.btn_negative = tk.Button(
-            top_button_frame, text="负向点击点", width=12, command=self.toggle_negative
+            ai_tool_frame, text="负向点击点", width=12, command=self.toggle_negative
         )
-        self.lbl_circle_legend = tk.Label(
-            top_button_frame,
-            text="绿色圆圈：新增激光点\n蓝色圆圈：已有激光点\n红色圆圈：去除激光点",
+        legend_frame = tk.Frame(ai_tool_frame)
+        legend_frame.pack(padx=6, pady=4, anchor="w")
+        self.icon_green = self._create_circle_icon("green")
+        self.icon_blue = self._create_circle_icon("blue")
+        self.icon_red = self._create_circle_icon("red")
+        self._add_legend_row(legend_frame, self.icon_green, "新增激光点")
+        self._add_legend_row(legend_frame, self.icon_blue, "已有激光点")
+        self._add_legend_row(legend_frame, self.icon_red, "去除激光点")
+        tk.Label(
+            ai_tool_frame,
+            text="建议先使用AI工具再用传统工具修改手术规划",
+            wraplength=180,
             justify=tk.LEFT,
+        ).pack(padx=6, pady=(4, 6), anchor="w")
+
+        traditional_tool_frame = tk.Frame(button_frame, relief=tk.GROOVE, borderwidth=2)
+        traditional_tool_frame.pack(side=tk.TOP, fill=tk.X, padx=8, pady=8)
+        tk.Label(traditional_tool_frame, text="传统工具", font=tkfont.Font(weight="bold")).pack(
+            pady=(6, 4)
         )
         self.btn_add_point = tk.Button(
-            top_button_frame, text="添加激光点", width=14, command=self.toggle_add_point
+            traditional_tool_frame, text="添加激光点", width=14, command=self.toggle_add_point
         )
         self.btn_remove_point = tk.Button(
-            top_button_frame, text="删除激光点", width=14, command=self.toggle_remove_point
+            traditional_tool_frame, text="删除激光点", width=14, command=self.toggle_remove_point
         )
         self.btn_add_area = tk.Button(
-            top_button_frame, text="添加手术区域", width=14, command=self.toggle_add_area
+            traditional_tool_frame, text="添加手术区域", width=14, command=self.toggle_add_area
         )
         self.btn_remove_area = tk.Button(
-            top_button_frame, text="删除手术区域", width=14, command=self.toggle_remove_area
-        )
-        self.btn_clear = tk.Button(
-            bottom_button_frame, text="清空当前手术方案", width=16, command=self.clear_plan
-        )
-        self.btn_confirm = tk.Button(
-            bottom_button_frame, text="确定手术方案", width=16, command=self.confirm_plan
+            traditional_tool_frame, text="删除手术区域", width=14, command=self.toggle_remove_area
         )
 
-        self.btn_positive.pack(pady=8)
-        self.btn_negative.pack(pady=8)
-        self.lbl_circle_legend.pack(padx=6, pady=4, anchor="w")
+        action_frame = tk.Frame(button_frame)
+        action_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=8, pady=8)
+        self.btn_clear = tk.Button(
+            action_frame, text="清空当前手术方案", width=16, command=self.clear_plan
+        )
+        self.btn_confirm = tk.Button(
+            action_frame, text="确定手术方案", width=16, command=self.confirm_plan
+        )
+
+        self.btn_positive.pack(pady=6)
+        self.btn_negative.pack(pady=6)
         self.btn_add_point.pack(pady=6)
         self.btn_remove_point.pack(pady=6)
         self.btn_add_area.pack(pady=6)
         self.btn_remove_area.pack(pady=6)
+        self.btn_clear.pack(pady=6)
         self.btn_confirm.pack(pady=6)
-        self.btn_clear.pack(pady=12)
 
         self._update_button_states(initial=True)
+
+    def _create_circle_icon(self, color: str, size: int = 12) -> ImageTk.PhotoImage:
+        radius = size // 2 - 1
+        image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(image)
+        draw.ellipse(
+            (size // 2 - radius, size // 2 - radius, size // 2 + radius, size // 2 + radius),
+            fill=color,
+            outline="black",
+        )
+        return ImageTk.PhotoImage(image)
+
+    def _add_legend_row(
+        self, parent: tk.Frame, icon: ImageTk.PhotoImage, text: str
+    ) -> None:
+        row = tk.Frame(parent)
+        row.pack(anchor="w")
+        tk.Label(row, image=icon).pack(side=tk.LEFT, padx=(0, 6))
+        tk.Label(row, text=text).pack(side=tk.LEFT)
 
     def _update_button_states(self, initial: bool = False) -> None:
         if initial:
