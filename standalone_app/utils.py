@@ -41,6 +41,8 @@ SUPPORTED_CHINESE_FONTS = (
     "Heiti SC",
 )
 
+CIRCLE_RADIUS = 12
+
 
 def load_image(path: str) -> Image.Image:
     return Image.open(path).convert("RGB")

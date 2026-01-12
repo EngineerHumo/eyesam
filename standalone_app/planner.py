@@ -5,6 +5,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from utils import (
+    CIRCLE_RADIUS,
     PlanResult,
     binarize_mask,
     fill_small_holes,
@@ -78,11 +79,10 @@ def plan_surgery(
                 all_centers.append((int(x), int(y)))
         radius += radius_step
 
-    circle_radius = 12
     for center in all_centers:
         x, y = center
         draw.ellipse(
-            (x - circle_radius, y - circle_radius, x + circle_radius, y + circle_radius),
+            (x - CIRCLE_RADIUS, y - CIRCLE_RADIUS, x + CIRCLE_RADIUS, y + CIRCLE_RADIUS),
             outline=(0, 0, 255),
             width=2,
         )
