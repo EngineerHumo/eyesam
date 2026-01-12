@@ -71,7 +71,7 @@ class SurgicalPipeline:
 
         current_result = first_result
         current_click = click0
-        for idx in range(3):
+        for idx in range(5):
             prev_bin = binarize_mask(current_result.mask)
             prev_lcc = largest_connected_component(prev_bin)
             current_click_raw = inscribed_center(prev_lcc)

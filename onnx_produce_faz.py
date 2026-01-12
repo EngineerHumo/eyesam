@@ -144,7 +144,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--output",
-        default="faz.onnx",
+        default="onnx/faz.onnx",
         help="Output ONNX path",
     )
     parser.add_argument("--device", default="cpu", help="Device for export")
