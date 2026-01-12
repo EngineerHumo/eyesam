@@ -76,8 +76,9 @@ class SurgicalPipeline:
             prev_bin = binarize_mask(current_result.mask)
             prev_lcc = largest_connected_component(prev_bin)
             current_click_raw = inscribed_center(prev_lcc)
-            scale_x_first = first_image.original_pil.width / first_image.resized_np.shape[1]
-            scale_y_first = first_image.original_pil.height / first_image.resized_np.shape[0]
+            mask_h, mask_w = current_result.mask.shape
+            scale_x_first = first_image.original_pil.width / mask_w
+            scale_y_first = first_image.original_pil.height / mask_h
             current_click = (
                 int(current_click_raw[0] * scale_x_first),
                 int(current_click_raw[1] * scale_y_first),
