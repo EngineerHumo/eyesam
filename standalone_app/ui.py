@@ -10,16 +10,13 @@ import cv2
 from PIL import Image, ImageDraw, ImageTk
 
 from pipeline import SurgicalPipeline
-from planner import compute_faz_center, plan_surgery
+from planner import plan_surgery
 from utils import (
     Click,
     CIRCLE_RADIUS,
     ModelImage,
     PlanResult,
     SUPPORTED_CHINESE_FONTS,
-    binarize_mask,
-    inscribed_center,
-    largest_connected_component,
     load_image,
     prepare_image_for_model,
     resize_mask,
@@ -50,7 +47,6 @@ class MainWindow:
         self.faz_center: Optional[tuple[int, int]] = None
         self.last_auto_click: Optional[tuple[int, int]] = None
         self.display_size = (640, 640)
-        self.mask_display_size = (256, 256)
         self.display_scale_x = 1.0
         self.display_scale_y = 1.0
         self.preview_job: Optional[str] = None
@@ -58,10 +54,6 @@ class MainWindow:
         self.mouse_over_canvas = False
         self.drawing_points: List[Tuple[int, int]] = []
         self.drawn_line: Optional[int] = None
-        self.faz_mask_canvas: Optional[tk.Canvas] = None
-        self.area_mask_canvas: Optional[tk.Canvas] = None
-        self.faz_mask_image: Optional[ImageTk.PhotoImage] = None
-        self.area_mask_image: Optional[ImageTk.PhotoImage] = None
 
         self._setup_fonts()
         self._setup_ui()
@@ -155,16 +147,6 @@ class MainWindow:
         self.btn_remove_area = tk.Button(
             traditional_tool_frame, text="删除手术区域", width=14, command=self.toggle_remove_area
         )
-
-        mask_frame = tk.Frame(button_frame, relief=tk.GROOVE, borderwidth=2)
-        mask_frame.pack(side=tk.TOP, fill=tk.X, padx=8, pady=8)
-        tk.Label(mask_frame, text="掩码预览", font=tkfont.Font(weight="bold")).pack(pady=(6, 4))
-        tk.Label(mask_frame, text="FAZ Mask").pack()
-        self.faz_mask_canvas = tk.Canvas(mask_frame, bg="black")
-        self.faz_mask_canvas.pack(padx=4, pady=4)
-        tk.Label(mask_frame, text="Area Mask").pack()
-        self.area_mask_canvas = tk.Canvas(mask_frame, bg="black")
-        self.area_mask_canvas.pack(padx=4, pady=4)
 
         action_frame = tk.Frame(button_frame)
         action_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=8, pady=8)
@@ -345,32 +327,12 @@ class MainWindow:
             mask,
             logits,
             last_auto_click,
-            area_center,
             last_click,
             faz_center,
             plan,
-            area_mask,
-            faz_mask,
+            _area_mask,
+            _faz_mask,
         ) = self.pipeline.run_initial(image, model_size)
-        self._render_mask_previews(faz_mask, area_mask)
-        faz_mask_center = compute_faz_center(faz_mask)
-        area_bin = binarize_mask(area_mask)
-        area_lcc = largest_connected_component(area_bin)
-        area_mask_center = inscribed_center(area_lcc)
-        LOGGER.info("faz_mask shape=%s center=(%d,%d)", faz_mask.shape, faz_mask_center[0], faz_mask_center[1])
-        LOGGER.info(
-            "area_mask shape=%s center=(%d,%d)", area_mask.shape, area_mask_center[0], area_mask_center[1]
-        )
-        if self.original_pil:
-            LOGGER.info(
-                "main_canvas shape=(%d,%d) plan_faz_center=(%d,%d) area_click0=(%d,%d)",
-                self.original_pil.height,
-                self.original_pil.width,
-                faz_center[0],
-                faz_center[1],
-                area_center[0],
-                area_center[1],
-            )
         self.state.current_mask = mask
         self.state.current_logits = logits
         self.state.auto_click = last_auto_click
@@ -384,28 +346,6 @@ class MainWindow:
         self.last_auto_click = last_click
         LOGGER.info("initial_plan_clicks=%d", 1 if last_auto_click else 0)
         self._render_overlay(plan.overlay)
-
-    def _render_mask_previews(self, faz_mask: np.ndarray, area_mask: np.ndarray) -> None:
-        if self.faz_mask_canvas is None or self.area_mask_canvas is None:
-            return
-        self.faz_mask_canvas.config(
-            width=self.mask_display_size[0], height=self.mask_display_size[1]
-        )
-        self.area_mask_canvas.config(
-            width=self.mask_display_size[0], height=self.mask_display_size[1]
-        )
-        faz_image = Image.fromarray((faz_mask * 255).astype(np.uint8)).resize(
-            self.mask_display_size, Image.NEAREST
-        )
-        area_image = Image.fromarray((area_mask * 255).astype(np.uint8)).resize(
-            self.mask_display_size, Image.NEAREST
-        )
-        self.faz_mask_image = ImageTk.PhotoImage(faz_image.convert("RGB"))
-        self.area_mask_image = ImageTk.PhotoImage(area_image.convert("RGB"))
-        self.faz_mask_canvas.delete("all")
-        self.area_mask_canvas.delete("all")
-        self.faz_mask_canvas.create_image(0, 0, image=self.faz_mask_image, anchor=tk.NW)
-        self.area_mask_canvas.create_image(0, 0, image=self.area_mask_image, anchor=tk.NW)
 
     def _render_overlay(self, overlay: Image.Image) -> None:
         display_overlay = overlay.resize(self.display_size, Image.BILINEAR)

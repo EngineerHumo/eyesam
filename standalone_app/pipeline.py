@@ -108,7 +108,6 @@ class SurgicalPipeline:
             display_mask,
             current_result.logits,
             last_auto_click,
-            click0,
             current_click,
             faz_center,
             plan,
