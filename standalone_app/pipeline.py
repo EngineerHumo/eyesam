@@ -61,6 +61,7 @@ class SurgicalPipeline:
         LOGGER.info("auto_click0=(%d,%d)", click0[0], click0[1])
 
         first_clicks = self._prepare_click(click0, label=1)
+        last_auto_click = first_clicks[0]
         resized_hw = (first_image.resized_np.shape[0], first_image.resized_np.shape[1])
         first_result = self.first_model.infer(
             first_image.resized_np,
@@ -83,6 +84,7 @@ class SurgicalPipeline:
             )
             LOGGER.info("auto_click%d=(%d,%d)", idx + 1, current_click[0], current_click[1])
             click_list = self._prepare_click(current_click, label=1)
+            last_auto_click = click_list[0]
             current_result = self.first_model.infer(
                 first_image.resized_np,
                 resized_hw=resized_hw,
@@ -99,10 +101,12 @@ class SurgicalPipeline:
             current_result.mask,
             (faz_image.original_pil.width, faz_image.original_pil.height),
         )
+        LOGGER.info("planning_with_initial_plan=%s", True)
         plan = plan_surgery(faz_image.original_pil, display_mask, faz_center)
         return (
             display_mask,
             current_result.logits,
+            last_auto_click,
             current_click,
             faz_center,
             plan,
