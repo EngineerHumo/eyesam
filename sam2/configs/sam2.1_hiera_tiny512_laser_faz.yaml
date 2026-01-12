@@ -337,6 +337,7 @@ trainer:
         loss_dice: 1
         loss_iou: 1
         loss_class: 1
+        loss_click_transform: 2.0
       supervise_all_iou: true
       iou_use_l1_loss: true
       pred_obj_scores: true
@@ -346,6 +347,7 @@ trainer:
       click_loss_sigma_base: 60.0
       click_loss_sigma_decay: 6.0
       click_loss_min_sigma: 6.0
+      click_transform_loss_start_step: 1
 
   distributed:
     backend: nccl #  gloo or nccl
