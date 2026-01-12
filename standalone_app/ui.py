@@ -29,6 +29,7 @@ class AppState:
     current_mask: Optional[np.ndarray] = None
     current_logits: Optional[np.ndarray] = None
     clicks: Optional[List[Click]] = None
+    auto_click: Optional[Click] = None
     mode: str = "none"
 
 
@@ -36,7 +37,7 @@ class MainWindow:
     def __init__(self, root: tk.Tk, pipeline: SurgicalPipeline):
         self.root = root
         self.pipeline = pipeline
-        self.state = AppState(clicks=[])
+        self.state = AppState(clicks=[], auto_click=None)
         self.current_image: Optional[ModelImage] = None
         self.original_pil: Optional[Image.Image] = None
         self.display_image: Optional[ImageTk.PhotoImage] = None
@@ -167,6 +168,7 @@ class MainWindow:
         (
             mask,
             logits,
+            last_auto_click,
             last_click,
             faz_center,
             plan,
@@ -175,7 +177,8 @@ class MainWindow:
         ) = self.pipeline.run_initial(image, model_size)
         self.state.current_mask = mask
         self.state.current_logits = logits
-        self.state.clicks = []
+        self.state.auto_click = last_auto_click
+        self.state.clicks = [last_auto_click]
         self.state.has_plan = True
         self.state.mode = "none"
         self._update_button_states()
@@ -183,6 +186,7 @@ class MainWindow:
         self.plan = plan
         self.faz_center = faz_center
         self.last_auto_click = last_click
+        LOGGER.info("initial_plan_clicks=%d", 1 if last_auto_click else 0)
         self._render_overlay(plan.overlay)
 
     def _render_overlay(self, overlay: Image.Image) -> None:
@@ -206,6 +210,7 @@ class MainWindow:
 
         if not self.state.has_plan and click.label == 1:
             self.state.clicks = [click]
+            self.state.auto_click = None
             first_size = self.pipeline.first_model.image_input_size(
                 (self.original_pil.width, self.original_pil.height)
             )
@@ -219,6 +224,7 @@ class MainWindow:
             if self.faz_center is None:
                 self.faz_center = (self.original_pil.width // 2, self.original_pil.height // 2)
             display_mask = resize_mask(result.mask, (self.original_pil.width, self.original_pil.height))
+            LOGGER.info("planning_with_initial_plan=%s", False)
             plan = plan_surgery(self.original_pil, display_mask, self.faz_center)
             self._apply_plan(result, plan, display_mask)
             self.state.has_plan = True
@@ -232,6 +238,14 @@ class MainWindow:
         if self.state.current_logits is None:
             messagebox.showerror("错误", "缺少上一轮 logits，无法迭代")
             return
+        auto_clicks = [self.state.auto_click] if self.state.auto_click else []
+        user_clicks = max(len(self.state.clicks) - len(auto_clicks), 0)
+        LOGGER.info(
+            "iteration_inputs auto_clicks=%d user_clicks=%d total_clicks=%d",
+            len(auto_clicks),
+            user_clicks,
+            len(self.state.clicks),
+        )
         result = self.pipeline.run_iteration(
             self.current_image,
             self.state.clicks,
@@ -240,6 +254,7 @@ class MainWindow:
         if self.faz_center is None:
             self.faz_center = (self.original_pil.width // 2, self.original_pil.height // 2)
         display_mask = resize_mask(result.mask, (self.original_pil.width, self.original_pil.height))
+        LOGGER.info("planning_with_initial_plan=%s", bool(auto_clicks))
         plan = plan_surgery(self.original_pil, display_mask, self.faz_center)
         self._apply_plan(result, plan, display_mask)
 
@@ -252,7 +267,7 @@ class MainWindow:
     def clear_plan(self) -> None:
         if not self.original_pil:
             return
-        self.state = AppState(clicks=[])
+        self.state = AppState(clicks=[], auto_click=None)
         self.plan = None
         self._update_button_states()
         self._refresh_toggle_buttons()
