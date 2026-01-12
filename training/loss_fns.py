@@ -170,6 +170,7 @@ class MultiStepMultiMasksAndIous(nn.Module):
         click_loss_sigma_base=60.0,
         click_loss_sigma_decay=6.0,
         click_loss_min_sigma=6.0,
+        click_transform_loss_start_step=1,
     ):
         """
         This class computes the multi-step multi-mask and IoU losses.
@@ -193,6 +194,8 @@ class MultiStepMultiMasksAndIous(nn.Module):
         assert "loss_iou" in self.weight_dict
         if "loss_class" not in self.weight_dict:
             self.weight_dict["loss_class"] = 0.0
+        if "loss_click_transform" not in self.weight_dict:
+            self.weight_dict["loss_click_transform"] = 0.0
 
         self.focal_alpha_obj_score = focal_alpha_obj_score
         self.focal_gamma_obj_score = focal_gamma_obj_score
@@ -203,6 +206,7 @@ class MultiStepMultiMasksAndIous(nn.Module):
         self.click_loss_sigma_base = click_loss_sigma_base
         self.click_loss_sigma_decay = click_loss_sigma_decay
         self.click_loss_min_sigma = click_loss_min_sigma
+        self.click_transform_loss_start_step = click_transform_loss_start_step
 
     def forward(self, outs_batch: List[Dict], targets_batch: torch.Tensor):
         assert len(outs_batch) == len(targets_batch)
@@ -246,14 +250,21 @@ class MultiStepMultiMasksAndIous(nn.Module):
         assert len(object_score_logits_list) == len(ious_list)
 
         # accumulate the loss over prediction steps
-        losses = {"loss_mask": 0, "loss_dice": 0, "loss_iou": 0, "loss_class": 0}
+        losses = {
+            "loss_mask": 0,
+            "loss_dice": 0,
+            "loss_iou": 0,
+            "loss_class": 0,
+            "loss_click_transform": 0,
+        }
+        prev_selected_logits = None
         for step_index, (src_masks, ious, object_score_logits) in enumerate(
             zip(src_masks_list, ious_list, object_score_logits_list)
         ):
             point_inputs = None
             if point_inputs_list is not None and step_index < len(point_inputs_list):
                 point_inputs = point_inputs_list[step_index]
-            self._update_losses(
+            selected_logits = self._update_losses(
                 losses,
                 src_masks,
                 target_masks,
@@ -262,7 +273,9 @@ class MultiStepMultiMasksAndIous(nn.Module):
                 object_score_logits,
                 point_inputs,
                 step_index,
+                prev_selected_logits,
             )
+            prev_selected_logits = selected_logits.detach()
         losses[CORE_LOSS_KEY] = self.reduce_loss(losses)
         return losses
 
@@ -276,6 +289,7 @@ class MultiStepMultiMasksAndIous(nn.Module):
         object_score_logits,
         point_inputs=None,
         step_index=0,
+        prev_selected_logits=None,
     ):
         weight_map = self._build_click_weight_map(
             point_inputs, target_masks, step_index
@@ -341,6 +355,7 @@ class MultiStepMultiMasksAndIous(nn.Module):
             batch_inds = torch.arange(loss_combo.size(0), device=loss_combo.device)
             loss_mask = loss_multimask[batch_inds, best_loss_inds].unsqueeze(1)
             loss_dice = loss_multidice[batch_inds, best_loss_inds].unsqueeze(1)
+            selected_logits = src_masks[batch_inds, best_loss_inds].unsqueeze(1)
             # calculate the iou prediction and slot losses only in the index
             # with the minimum loss for each mask (to be consistent w/ SAM)
             if self.supervise_all_iou:
@@ -351,6 +366,7 @@ class MultiStepMultiMasksAndIous(nn.Module):
             loss_mask = loss_multimask
             loss_dice = loss_multidice
             loss_iou = loss_multiiou
+            selected_logits = src_masks
 
         # backprop focal, dice and iou loss only if obj present
         loss_mask = loss_mask * target_obj
@@ -362,6 +378,16 @@ class MultiStepMultiMasksAndIous(nn.Module):
         losses["loss_dice"] += loss_dice.sum()
         losses["loss_iou"] += loss_iou.sum()
         losses["loss_class"] += loss_class
+        click_transform_loss = self._build_click_transform_loss(
+            prev_selected_logits,
+            selected_logits,
+            point_inputs,
+            num_objects,
+            step_index,
+        )
+        if click_transform_loss is not None:
+            losses["loss_click_transform"] += click_transform_loss
+        return selected_logits
 
     def reduce_loss(self, losses):
         reduced_loss = 0.0
@@ -411,3 +437,33 @@ class MultiStepMultiMasksAndIous(nn.Module):
                 gaussian = torch.exp(-((xx - x) ** 2 + (yy - y) ** 2) / sigma_sq)
                 weight_map[b, 0] = weight_map[b, 0] + gaussian
         return weight_map
+
+    def _build_click_transform_loss(
+        self,
+        prev_logits,
+        cur_logits,
+        point_inputs,
+        num_objects,
+        step_index,
+    ):
+        if step_index < self.click_transform_loss_start_step:
+            return None
+        if prev_logits is None or point_inputs is None:
+            return None
+        point_labels = point_inputs.get("point_labels")
+        if point_labels is None or point_labels.size(1) < 2:
+            return None
+        new_labels = point_labels[:, -1]
+        valid = new_labels >= 0
+        if not torch.any(valid):
+            return None
+        prev_prob = torch.sigmoid(prev_logits).detach()
+        cur_prob = torch.sigmoid(cur_logits)
+        pos_mask = (new_labels == 1).view(-1, 1, 1, 1)
+        neg_mask = (new_labels == 0).view(-1, 1, 1, 1)
+        pos_loss = prev_prob * (1 - cur_prob)
+        neg_loss = (1 - prev_prob) * cur_prob
+        loss = pos_loss * pos_mask + neg_loss * neg_mask
+        per_sample = loss.flatten(1).mean(-1)
+        per_sample = per_sample * valid.float()
+        return per_sample.sum() / num_objects
