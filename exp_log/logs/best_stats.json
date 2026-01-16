@@ -1,7 +1,0 @@
-{"best_val_loss": 6.080428123474121, "Trainer/where": 0.0022500000000000003, "Trainer/epoch": 0, "Trainer/steps_train": 10}
-{"best_val_loss": 5.150115489959717, "Trainer/where": 0.00475, "Trainer/epoch": 1, "Trainer/steps_train": 20}
-{"best_val_loss": 4.870279312133789, "Trainer/where": 0.0072499999999999995, "Trainer/epoch": 2, "Trainer/steps_train": 30}
-{"best_val_loss": 4.870279312133789, "Trainer/where": 0.00975, "Trainer/epoch": 3, "Trainer/steps_train": 40}
-{"best_val_loss": 4.870279312133789, "Trainer/where": 0.01225, "Trainer/epoch": 4, "Trainer/steps_train": 50}
-{"best_val_loss": 4.870279312133789, "Trainer/where": 0.014750000000000001, "Trainer/epoch": 5, "Trainer/steps_train": 60}
-{"best_val_loss": 4.562921047210693, "Trainer/where": 0.01725, "Trainer/epoch": 6, "Trainer/steps_train": 70}
