@@ -256,9 +256,7 @@ class MultiStepMultiMasksAndIous(nn.Module):
             zip(src_masks_list, ious_list, object_score_logits_list)
         ):
             if losses is None:
-                zero = torch.tensor(
-                    0.0, device=src_masks.device, dtype=src_masks.dtype
-                )
+                zero = torch.tensor(0.0, device=src_masks.device, dtype=torch.float32)
                 losses = {
                     "loss_mask": zero.clone(),
                     "loss_dice": zero.clone(),
@@ -388,10 +386,11 @@ class MultiStepMultiMasksAndIous(nn.Module):
         loss_iou = loss_iou * target_obj
 
         # sum over batch dimension (note that the losses are already divided by num_objects)
-        losses["loss_mask"] += loss_mask.sum()
-        losses["loss_dice"] += loss_dice.sum()
-        losses["loss_iou"] += loss_iou.sum()
-        losses["loss_class"] += loss_class
+        loss_dtype = losses["loss_mask"].dtype
+        losses["loss_mask"] += loss_mask.sum().to(dtype=loss_dtype)
+        losses["loss_dice"] += loss_dice.sum().to(dtype=loss_dtype)
+        losses["loss_iou"] += loss_iou.sum().to(dtype=loss_dtype)
+        losses["loss_class"] += loss_class.to(dtype=loss_dtype)
         click_transform_loss = self._build_click_transform_loss(
             prev_selected_logits,
             selected_logits,
@@ -400,7 +399,9 @@ class MultiStepMultiMasksAndIous(nn.Module):
             step_index,
         )
         if click_transform_loss is not None:
-            losses["loss_click_transform"] += click_transform_loss
+            losses["loss_click_transform"] += click_transform_loss.to(
+                dtype=loss_dtype
+            )
         return selected_logits
 
     def reduce_loss(self, losses):
