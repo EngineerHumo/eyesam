@@ -250,17 +250,22 @@ class MultiStepMultiMasksAndIous(nn.Module):
         assert len(object_score_logits_list) == len(ious_list)
 
         # accumulate the loss over prediction steps
-        losses = {
-            "loss_mask": 0,
-            "loss_dice": 0,
-            "loss_iou": 0,
-            "loss_class": 0,
-            "loss_click_transform": 0,
-        }
+        losses = None
         prev_selected_logits = None
         for step_index, (src_masks, ious, object_score_logits) in enumerate(
             zip(src_masks_list, ious_list, object_score_logits_list)
         ):
+            if losses is None:
+                zero = torch.tensor(
+                    0.0, device=src_masks.device, dtype=src_masks.dtype
+                )
+                losses = {
+                    "loss_mask": zero.clone(),
+                    "loss_dice": zero.clone(),
+                    "loss_iou": zero.clone(),
+                    "loss_class": zero.clone(),
+                    "loss_click_transform": zero.clone(),
+                }
             point_inputs = None
             if point_inputs_list is not None and step_index < len(point_inputs_list):
                 point_inputs = point_inputs_list[step_index]
@@ -276,6 +281,15 @@ class MultiStepMultiMasksAndIous(nn.Module):
                 prev_selected_logits,
             )
             prev_selected_logits = selected_logits.detach()
+        if losses is None:
+            zero = torch.tensor(0.0, device=targets.device, dtype=torch.float32)
+            losses = {
+                "loss_mask": zero.clone(),
+                "loss_dice": zero.clone(),
+                "loss_iou": zero.clone(),
+                "loss_class": zero.clone(),
+                "loss_click_transform": zero.clone(),
+            }
         losses[CORE_LOSS_KEY] = self.reduce_loss(losses)
         return losses
 
