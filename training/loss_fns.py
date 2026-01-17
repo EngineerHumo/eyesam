@@ -250,12 +250,13 @@ class MultiStepMultiMasksAndIous(nn.Module):
         assert len(object_score_logits_list) == len(ious_list)
 
         # accumulate the loss over prediction steps
+        zero = torch.tensor(0.0, device=targets.device, dtype=targets.dtype)
         losses = {
-            "loss_mask": 0,
-            "loss_dice": 0,
-            "loss_iou": 0,
-            "loss_class": 0,
-            "loss_click_transform": 0,
+            "loss_mask": zero.clone(),
+            "loss_dice": zero.clone(),
+            "loss_iou": zero.clone(),
+            "loss_class": zero.clone(),
+            "loss_click_transform": zero.clone(),
         }
         prev_selected_logits = None
         for step_index, (src_masks, ious, object_score_logits) in enumerate(
