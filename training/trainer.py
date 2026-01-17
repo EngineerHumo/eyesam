@@ -175,6 +175,7 @@ class Trainer:
 
         self.data_conf = data
         self.model_conf = model
+        self.no_click_eval = self._infer_no_click_eval()
         self.logging_conf = LoggingConf(**logging)
         self.checkpoint_conf = CheckpointConf(**checkpoint).infer_missing()
         self.max_epochs = max_epochs
@@ -458,6 +459,22 @@ class Trainer:
     def is_intermediate_val_epoch(self, epoch):
         return epoch % self.val_epoch_freq == 0 and epoch < self.max_epochs - 1
 
+    def _infer_no_click_eval(self) -> bool:
+        def is_zero(value: Any, caster: Any) -> bool:
+            if value is None:
+                return False
+            try:
+                return caster(value) == 0
+            except (TypeError, ValueError):
+                return False
+
+        return (
+            is_zero(self.model_conf.get("prob_to_use_pt_input_for_eval"), float)
+            and is_zero(self.model_conf.get("prob_to_use_box_input_for_eval"), float)
+            and is_zero(self.model_conf.get("num_frames_to_correct_for_eval"), int)
+            and is_zero(self.model_conf.get("num_correction_pt_per_frame"), int)
+        )
+
     def _step(
         self,
         batch: BatchedVideoDatapoint,
@@ -487,12 +504,17 @@ class Trainer:
             )
 
         if phase == Phase.VAL:
-            dice_metrics = self._compute_val_dice_metrics(outputs, targets)
-            if dice_metrics is not None:
-                second_click_dice, third_click_dice, final_iter_dice = dice_metrics
-                step_losses["Dice/val_second_click"] = second_click_dice
-                step_losses["Dice/val_third_click"] = third_click_dice
-                step_losses["Dice/val_final_iter"] = final_iter_dice
+            if self.no_click_eval:
+                no_click_dice = self._compute_val_no_click_dice(outputs, targets)
+                if no_click_dice is not None:
+                    step_losses["Dice/val_no_click"] = no_click_dice
+            else:
+                dice_metrics = self._compute_val_dice_metrics(outputs, targets)
+                if dice_metrics is not None:
+                    second_click_dice, third_click_dice, final_iter_dice = dice_metrics
+                    step_losses["Dice/val_second_click"] = second_click_dice
+                    step_losses["Dice/val_third_click"] = third_click_dice
+                    step_losses["Dice/val_final_iter"] = final_iter_dice
 
         if step % self.logging_conf.log_scalar_frequency == 0:
             self.logger.log(
@@ -560,6 +582,41 @@ class Trainer:
             torch.stack(third_dices).mean(),
             torch.stack(final_dices).mean(),
         )
+
+    def _compute_val_no_click_dice(
+        self, outputs: List[Dict[str, torch.Tensor]], targets: torch.Tensor
+    ) -> Optional[torch.Tensor]:
+        if not outputs:
+            return None
+
+        no_click_dices = []
+        for frame_out, frame_targets in zip(outputs, targets):
+            pred_steps = frame_out.get("multistep_pred_masks_high_res")
+            if pred_steps is None:
+                pred_steps = frame_out.get("multistep_pred_masks")
+
+            if pred_steps is not None:
+                if pred_steps.dim() == 3:
+                    pred_steps = pred_steps.unsqueeze(1)
+                if pred_steps.dim() != 4 or pred_steps.size(1) < 1:
+                    continue
+                pred_logits = pred_steps[:, 0]
+            else:
+                pred_logits = frame_out.get("pred_masks_high_res")
+                if pred_logits is None:
+                    pred_logits = frame_out.get("pred_masks")
+                if pred_logits is None:
+                    continue
+                if pred_logits.dim() == 2:
+                    pred_logits = pred_logits.unsqueeze(0)
+
+            frame_targets = frame_targets.float()
+            no_click_dices.append(self._compute_dice(pred_logits, frame_targets))
+
+        if not no_click_dices:
+            return None
+
+        return torch.stack(no_click_dices).mean()
 
     def _compute_dice(
         self, pred_logits: torch.Tensor, target_masks: torch.Tensor
@@ -815,49 +872,81 @@ class Trainer:
         return f"{value:.6f}".replace(".", "p")
 
     def _maybe_save_topk_dice_checkpoints(self, out_dict: Mapping[str, Any]) -> None:
-        if (
-            "Dice/val_second_click" not in out_dict
-            or "Dice/val_third_click" not in out_dict
-            or "Dice/val_final_iter" not in out_dict
-        ):
-            return
-        second_click = float(out_dict["Dice/val_second_click"])
-        third_click = float(out_dict["Dice/val_third_click"])
-        final_iter = float(out_dict["Dice/val_final_iter"])
         epoch = int(self.epoch + 1)
-
-        entry = {
-            "epoch": epoch,
-            "dice_second_click": second_click,
-            "dice_third_click": third_click,
-            "dice_final_iter": final_iter,
-        }
-
         existing_epochs = {item.get("epoch") for item in self.best_dice_checkpoints}
         if epoch in existing_epochs:
             return
 
-        dice_sum = second_click + third_click
-        should_save = len(self.best_dice_checkpoints) < 10 or any(
-            dice_sum > item.get("dice_second_third_sum", float("-inf"))
-            for item in self.best_dice_checkpoints
-        )
-        if not should_save:
-            return
+        if self.no_click_eval:
+            if "Dice/val_no_click" not in out_dict:
+                return
+            no_click = float(out_dict["Dice/val_no_click"])
+            entry = {
+                "epoch": epoch,
+                "dice_no_click": no_click,
+                "dice_score": no_click,
+            }
 
-        ckpt_name = (
-            f"best_dice_epoch_{epoch:04d}_second_{self._format_metric_for_ckpt_name(second_click)}"
-            f"_third_{self._format_metric_for_ckpt_name(third_click)}"
-            f"_final_{self._format_metric_for_ckpt_name(final_iter)}"
-        )
-        self.save_checkpoint(epoch, checkpoint_names=[ckpt_name])
+            should_save = len(self.best_dice_checkpoints) < 10 or any(
+                no_click > item.get("dice_score", float("-inf"))
+                for item in self.best_dice_checkpoints
+            )
+            if not should_save:
+                return
 
-        entry["path"] = os.path.join(self.checkpoint_conf.save_dir, f"{ckpt_name}.pt")
-        entry["dice_second_third_sum"] = dice_sum
-        self.best_dice_checkpoints.append(entry)
-        self.best_dice_checkpoints.sort(
-            key=lambda item: item.get("dice_second_third_sum", 0.0), reverse=True
-        )
+            ckpt_name = (
+                f"best_dice_epoch_{epoch:04d}_no_click_"
+                f"{self._format_metric_for_ckpt_name(no_click)}"
+            )
+            self.save_checkpoint(epoch, checkpoint_names=[ckpt_name])
+            entry["path"] = os.path.join(
+                self.checkpoint_conf.save_dir, f"{ckpt_name}.pt"
+            )
+            self.best_dice_checkpoints.append(entry)
+            self.best_dice_checkpoints.sort(
+                key=lambda item: item.get("dice_score", 0.0), reverse=True
+            )
+        else:
+            if (
+                "Dice/val_second_click" not in out_dict
+                or "Dice/val_third_click" not in out_dict
+                or "Dice/val_final_iter" not in out_dict
+            ):
+                return
+            second_click = float(out_dict["Dice/val_second_click"])
+            third_click = float(out_dict["Dice/val_third_click"])
+            final_iter = float(out_dict["Dice/val_final_iter"])
+
+            entry = {
+                "epoch": epoch,
+                "dice_second_click": second_click,
+                "dice_third_click": third_click,
+                "dice_final_iter": final_iter,
+            }
+
+            dice_sum = second_click + third_click
+            should_save = len(self.best_dice_checkpoints) < 10 or any(
+                dice_sum > item.get("dice_second_third_sum", float("-inf"))
+                for item in self.best_dice_checkpoints
+            )
+            if not should_save:
+                return
+
+            ckpt_name = (
+                f"best_dice_epoch_{epoch:04d}_second_{self._format_metric_for_ckpt_name(second_click)}"
+                f"_third_{self._format_metric_for_ckpt_name(third_click)}"
+                f"_final_{self._format_metric_for_ckpt_name(final_iter)}"
+            )
+            self.save_checkpoint(epoch, checkpoint_names=[ckpt_name])
+
+            entry["path"] = os.path.join(
+                self.checkpoint_conf.save_dir, f"{ckpt_name}.pt"
+            )
+            entry["dice_second_third_sum"] = dice_sum
+            self.best_dice_checkpoints.append(entry)
+            self.best_dice_checkpoints.sort(
+                key=lambda item: item.get("dice_second_third_sum", 0.0), reverse=True
+            )
 
         while len(self.best_dice_checkpoints) > 10:
             removed = self.best_dice_checkpoints.pop()
