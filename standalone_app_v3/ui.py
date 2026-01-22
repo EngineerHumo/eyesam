@@ -166,7 +166,8 @@ class MainWindow:
         )
         self.progress_label.pack(padx=12, pady=(10, 6))
         style = ttk.Style()
-        style.configure("AI.Progressbar", thickness=18)
+        style_name = "Horizontal.TProgressbar"
+        style.configure(style_name, thickness=18)
         self.progress_bar = ttk.Progressbar(
             self.progress_frame,
             orient=tk.HORIZONTAL,
@@ -174,7 +175,7 @@ class MainWindow:
             maximum=100,
             variable=self.progress_var,
             length=320,
-            style="AI.Progressbar",
+            style=style_name,
         )
         self.progress_bar.pack(padx=16, pady=(0, 12), fill=tk.X)
 
