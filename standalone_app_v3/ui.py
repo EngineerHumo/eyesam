@@ -299,6 +299,13 @@ class MainWindow:
         self.exposure_time = int(self.exposure_time_var.get())
         if self.schemes and self.original_pil is not None:
             self._rebuild_scheme_plans()
+            return
+        if (
+            self.original_pil is not None
+            and self.state.current_mask is not None
+            and self.state.has_plan
+        ):
+            self._rebuild_current_plan_from_mask()
 
     def _create_circle_icon(self, color: str, size: int = 12) -> ImageTk.PhotoImage:
         radius = size // 2 - 1
@@ -543,6 +550,22 @@ class MainWindow:
     def _circle_radius(self) -> int:
         return max(1, int(round(self.spot_diameter / 2)))
 
+    def _rebuild_current_plan_from_mask(self) -> None:
+        if self.original_pil is None or self.state.current_mask is None:
+            return
+        if self.faz_center is None:
+            self.faz_center = (self.original_pil.width // 2, self.original_pil.height // 2)
+        plan = plan_surgery(
+            self.original_pil,
+            self.state.current_mask,
+            self.faz_center,
+            area_mask=self.area_mask,
+            spot_diameter=self.spot_diameter,
+            spot_distance=self.spot_distance,
+        )
+        self.plan = plan
+        self._render_overlay(plan.overlay)
+
     def _build_schemes(
         self,
         masks: List[np.ndarray],
@@ -756,6 +779,7 @@ class MainWindow:
         selected.mask = updated_mask
         selected.plan = updated_plan
         selected.circles = list(updated_plan.circle_centers)
+        selected.color = (0, 112, 255)
         self.state.current_mask = updated_mask
         self.state.current_logits = selected.logits
         self.state.auto_click = selected.click
