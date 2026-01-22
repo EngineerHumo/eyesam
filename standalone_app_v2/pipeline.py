@@ -11,9 +11,11 @@ from utils import (
     Click,
     ModelImage,
     binarize_mask,
+    fill_small_holes,
     inscribed_center,
     largest_connected_component,
     prepare_image_for_model,
+    remove_small_components,
     resize_mask,
 )
 
@@ -83,6 +85,8 @@ class SurgicalPipeline:
             current_result.mask,
             (image_pil.width, image_pil.height),
         )
+        display_mask = remove_small_components(display_mask, min_size=400)
+        display_mask = fill_small_holes(display_mask, area_threshold=400)
         LOGGER.info("planning_with_initial_plan=%s", True)
         plan = plan_surgery(image_pil, display_mask, faz_center, area_mask=area_display_mask)
         return (

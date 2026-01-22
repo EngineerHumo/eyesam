@@ -136,10 +136,6 @@ def inscribed_center(mask: np.ndarray) -> Tuple[int, int]:
     return int(x), int(y)
 
 
-def scale_point(point: Tuple[float, float], scale_x: float, scale_y: float) -> Tuple[float, float]:
-    return point[0] * scale_x, point[1] * scale_y
-
-
 def resize_mask(mask: np.ndarray, size: Tuple[int, int]) -> np.ndarray:
     resized = cv2.resize(mask.astype(np.float32), size, interpolation=cv2.INTER_NEAREST)
     return resized.astype(np.uint8)
