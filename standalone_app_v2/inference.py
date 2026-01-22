@@ -28,6 +28,7 @@ class OnnxModel:
         self.model_path = model_path
         self.session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
         self.io = self._inspect_io()
+        self.image_input_names = self._find_image_input_names()
 
     def _inspect_io(self) -> ModelIO:
         input_shapes = {i.name: tuple(i.shape) for i in self.session.get_inputs()}
@@ -50,17 +51,26 @@ class OnnxModel:
         return fallback
 
     def _resolve_image_input(self, image: np.ndarray) -> Dict[str, np.ndarray]:
-        for name, shape in self.io.input_shapes.items():
-            if len(shape) == 4:
-                channels_first = shape[1] in (1, 3)
-                channels_last = shape[-1] in (1, 3)
-                if channels_first or channels_last:
-                    img = normalize_image(image)
-                    if channels_first:
-                        img = img.transpose(2, 0, 1)
-                    img = img.astype(np.float32)[None, ...]
-                    return {name: img}
+        for name in self.image_input_names:
+            shape = self.io.input_shapes[name]
+            channels_first = shape[1] in (1, 3)
+            img = normalize_image(image)
+            if channels_first:
+                img = img.transpose(2, 0, 1)
+            img = img.astype(np.float32)[None, ...]
+            return {name: img}
         raise ValueError("No valid image input found in ONNX model")
+
+    def _find_image_input_names(self) -> List[str]:
+        candidates = []
+        for name, shape in self.io.input_shapes.items():
+            if len(shape) != 4:
+                continue
+            channels_first = shape[1] in (1, 3)
+            channels_last = shape[-1] in (1, 3)
+            if channels_first or channels_last:
+                candidates.append(name)
+        return candidates
 
     def _resolve_points_inputs(
         self,
@@ -118,9 +128,9 @@ class OnnxModel:
         for name, shape in self.io.input_shapes.items():
             if "has_mask" in name:
                 continue
-            if "mask_input" in name or "mask_inputs" in name or (
-                len(shape) == 4 and shape[1] == 1
-            ):
+            if name in self.image_input_names:
+                continue
+            if "mask_input" in name or "mask_inputs" in name:
                 if mask_input is not None:
                     inputs[name] = mask_input.astype(np.float32)
                     continue
@@ -135,8 +145,12 @@ class OnnxModel:
     def _resolve_orig_size_inputs(self, orig_hw: Tuple[int, int]) -> Dict[str, np.ndarray]:
         inputs = {}
         for name, shape in self.io.input_shapes.items():
-            if len(shape) == 2 and shape[-1] == 2 and "orig" in name:
+            if "orig" not in name:
+                continue
+            if len(shape) == 2 and shape[-1] == 2:
                 inputs[name] = np.array([orig_hw], dtype=np.float32)
+            elif len(shape) == 1 and shape[0] == 2:
+                inputs[name] = np.array(orig_hw, dtype=np.float32)
         return inputs
 
     def infer(
