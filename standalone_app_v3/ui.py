@@ -159,17 +159,24 @@ class MainWindow:
         slider_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(4, 8), pady=8)
         self.slider_frame = slider_frame
 
-        self.progress_frame = tk.Frame(side_panel)
+        self.progress_frame = tk.Frame(self.root, relief=tk.RIDGE, borderwidth=2)
         self.progress_var = tk.DoubleVar(value=0.0)
+        self.progress_label = tk.Label(
+            self.progress_frame, text="AI规划中", font=tkfont.Font(size=13, weight="bold")
+        )
+        self.progress_label.pack(padx=12, pady=(10, 6))
+        style = ttk.Style()
+        style.configure("AI.Progressbar", thickness=18)
         self.progress_bar = ttk.Progressbar(
             self.progress_frame,
             orient=tk.HORIZONTAL,
             mode="determinate",
             maximum=100,
             variable=self.progress_var,
-            length=180,
+            length=320,
+            style="AI.Progressbar",
         )
-        self.progress_bar.pack(padx=8, pady=8, fill=tk.X)
+        self.progress_bar.pack(padx=16, pady=(0, 12), fill=tk.X)
 
         ai_tool_frame = tk.Frame(button_frame, relief=tk.GROOVE, borderwidth=2)
         ai_tool_frame.pack(side=tk.TOP, fill=tk.X, padx=8, pady=8)
@@ -529,7 +536,8 @@ class MainWindow:
 
     def _show_progress(self) -> None:
         self.progress_var.set(0.0)
-        self.progress_frame.pack(side=tk.BOTTOM, fill=tk.X)
+        self.progress_frame.place(relx=0.5, rely=0.5, anchor="center")
+        self.progress_frame.lift()
         self.root.update_idletasks()
 
     def _update_progress(self, call_count: int) -> None:
@@ -546,7 +554,7 @@ class MainWindow:
 
     def _hide_progress(self) -> None:
         if self.progress_frame.winfo_ismapped():
-            self.progress_frame.pack_forget()
+            self.progress_frame.place_forget()
 
     def _compute_faz_ellipse(self) -> None:
         self.faz_ellipse = None
