@@ -381,42 +381,7 @@ class MainWindow:
         self.state.mode = "none"
         self._update_button_states()
         self._refresh_toggle_buttons()
-        self._apply_auto_click((1001, 682))
-
-    def _apply_auto_click(self, point: Tuple[int, int]) -> None:
-        if self.original_pil is None:
-            return
-        x = min(max(point[0], 0), self.original_pil.width - 1)
-        y = min(max(point[1], 0), self.original_pil.height - 1)
-        auto_click = Click(x=float(x), y=float(y), label=1)
-        self.state.clicks = [auto_click]
-
-        first_size = self.pipeline.first_model.image_input_size(
-            (self.original_pil.width, self.original_pil.height)
-        )
-        first_image = prepare_image_for_model(self.original_pil, first_size)
-        result = self.pipeline.first_model.infer(
-            first_image.resized_np,
-            resized_hw=(first_image.resized_np.shape[0], first_image.resized_np.shape[1]),
-            orig_hw=(first_image.original_np.shape[0], first_image.original_np.shape[1]),
-            clicks=self.state.clicks,
-        )
-        display_mask = resize_mask(result.mask, (self.original_pil.width, self.original_pil.height))
-        display_mask = self._postprocess_first_mask(display_mask)
-        self.spot_diameter_var.set(DEFAULT_SPOT_DIAMETER)
-        self.spot_distance_var.set(DEFAULT_SPOT_DISTANCE)
-        plan = plan_surgery(
-            self.original_pil,
-            display_mask,
-            self.area_mask,
-            spot_diameter=self.spot_diameter_var.get(),
-            spot_distance=self.spot_distance_var.get(),
-            max_layers=self.spot_layers_var.get(),
-        )
-        self._apply_plan(result, plan, display_mask)
-        self.state.has_plan = True
-        self._update_button_states()
-        self._render_current_plan()
+        self._render_overlay(self.original_pil)
 
     def _render_overlay(self, overlay: Image.Image) -> None:
         display_overlay = overlay.resize(self.display_size, Image.BILINEAR)
