@@ -66,6 +66,8 @@ class OnnxModel:
         for name, shape in self.io.input_shapes.items():
             if len(shape) != 4:
                 continue
+            if "mask" in name:
+                continue
             channels_first = shape[1] in (1, 3)
             channels_last = shape[-1] in (1, 3)
             if channels_first or channels_last:
@@ -128,18 +130,28 @@ class OnnxModel:
         for name, shape in self.io.input_shapes.items():
             if "has_mask" in name:
                 continue
-            if name in self.image_input_names:
+            if "mask" not in name and name in self.image_input_names:
                 continue
             if "mask_input" in name or "mask_inputs" in name:
                 if mask_input is not None:
                     inputs[name] = mask_input.astype(np.float32)
                     continue
-                shape_h = shape[2]
-                shape_w = shape[3]
+                if len(shape) == 4:
+                    shape_h = shape[2]
+                    shape_w = shape[3]
+                elif len(shape) == 3:
+                    shape_h = shape[1]
+                    shape_w = shape[2]
+                else:
+                    shape_h = resized_hw[0] // 4
+                    shape_w = resized_hw[1] // 4
                 if shape_h in (-1, None) or shape_w in (-1, None):
                     shape_h = resized_hw[0] // 4
                     shape_w = resized_hw[1] // 4
-                inputs[name] = np.zeros((1, 1, int(shape_h), int(shape_w)), dtype=np.float32)
+                if len(shape) == 3:
+                    inputs[name] = np.zeros((1, int(shape_h), int(shape_w)), dtype=np.float32)
+                else:
+                    inputs[name] = np.zeros((1, 1, int(shape_h), int(shape_w)), dtype=np.float32)
         return inputs
 
     def _resolve_orig_size_inputs(self, orig_hw: Tuple[int, int]) -> Dict[str, np.ndarray]:
