@@ -1087,7 +1087,7 @@ class MainWindow:
         for x, y in stay_centers:
             draw.ellipse(
                 (x - circle_radius, y - circle_radius, x + circle_radius, y + circle_radius),
-                outline=(0, 0, 255, 255),
+                outline=(0, 112, 255, 255),
                 width=2,
             )
         for x, y in add_centers:

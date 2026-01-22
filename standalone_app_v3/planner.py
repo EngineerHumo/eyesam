@@ -92,7 +92,7 @@ def plan_surgery(
         x, y = center
         draw.ellipse(
             (x - circle_radius, y - circle_radius, x + circle_radius, y + circle_radius),
-            outline=(0, 0, 255),
+            outline=(0, 112, 255),
             width=2,
         )
 
