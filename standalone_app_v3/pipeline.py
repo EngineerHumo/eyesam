@@ -1,5 +1,5 @@
 import logging
-from typing import List, Tuple
+from typing import Callable, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -78,7 +78,12 @@ class SurgicalPipeline:
         )
         return result, click_list[0]
 
-    def run_initial(self, image_pil, image_size: Tuple[int, int]):
+    def run_initial(
+        self,
+        image_pil,
+        image_size: Tuple[int, int],
+        progress_callback: Optional[Callable[[int], None]] = None,
+    ):
         first_size = self.first_model.image_input_size(image_size)
 
         first_image = prepare_image_for_model(image_pil, first_size)
@@ -95,6 +100,8 @@ class SurgicalPipeline:
         resized_hw = (first_image.resized_np.shape[0], first_image.resized_np.shape[1])
         first_result, last_auto_click = self._run_first_with_click(first_image, resized_hw, click0)
         run_count = 1
+        if progress_callback:
+            progress_callback(run_count)
 
         current_result = first_result
         current_click = click0
@@ -114,6 +121,8 @@ class SurgicalPipeline:
                 first_image, resized_hw, current_click
             )
             run_count += 1
+            if progress_callback:
+                progress_callback(run_count)
 
         faz_center = compute_faz_center(faz_display_mask)
         display_mask = resize_mask(
@@ -145,6 +154,8 @@ class SurgicalPipeline:
                     first_image, resized_hw, new_center
                 )
                 run_count += 1
+                if progress_callback:
+                    progress_callback(run_count)
                 candidate_mask = resize_mask(
                     candidate_result.mask,
                     (image_pil.width, image_pil.height),

@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 import onnxruntime as ort
 
+from onnx_utils import resolve_onnx_providers
 
 CHANNEL_TO_LABEL = np.array([0, 3, 2, 1], dtype=np.uint8)
 
@@ -332,8 +333,14 @@ def process_label(labels: np.ndarray) -> np.ndarray:
 
 
 class PreSegmentation:
-    def __init__(self, model_path: str, input_size: Tuple[int, int] = (1024, 1024)) -> None:
-        self.session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
+    def __init__(
+        self,
+        model_path: str,
+        input_size: Tuple[int, int] = (1024, 1024),
+        prefer_gpu: bool = True,
+    ) -> None:
+        providers = resolve_onnx_providers(prefer_gpu=prefer_gpu)
+        self.session = ort.InferenceSession(model_path, providers=providers)
         self.input_size = input_size
 
     def infer(self, image: np.ndarray) -> PreprocessResult:

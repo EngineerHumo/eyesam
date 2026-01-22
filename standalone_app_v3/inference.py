@@ -5,6 +5,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import onnxruntime as ort
 
+from onnx_utils import resolve_onnx_providers
 from utils import Click, binarize_mask, log_clicks, normalize_image, sigmoid
 
 LOGGER = logging.getLogger(__name__)
@@ -24,9 +25,10 @@ class InferenceResult:
 
 
 class OnnxModel:
-    def __init__(self, model_path: str):
+    def __init__(self, model_path: str, prefer_gpu: bool = True):
         self.model_path = model_path
-        self.session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
+        providers = resolve_onnx_providers(prefer_gpu=prefer_gpu)
+        self.session = ort.InferenceSession(model_path, providers=providers)
         self.io = self._inspect_io()
         self.image_input_names = self._find_image_input_names()
 
