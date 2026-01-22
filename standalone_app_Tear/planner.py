@@ -83,6 +83,46 @@ def _remove_overlaps(
     return remaining
 
 
+def _component_centroid(mask: np.ndarray) -> Tuple[float, float]:
+    moments = cv2.moments(mask.astype(np.uint8))
+    if moments["m00"] == 0:
+        h, w = mask.shape
+        return w / 2.0, h / 2.0
+    return moments["m10"] / moments["m00"], moments["m01"] / moments["m00"]
+
+
+def _push_outward(
+    point: Tuple[int, int],
+    center: Tuple[float, float],
+    existing: List[Tuple[int, int]],
+    min_center_distance: float,
+    bounds: Tuple[int, int],
+    max_steps: int = 200,
+) -> Tuple[int, int]:
+    x, y = point
+    cx, cy = center
+    dx = x - cx
+    dy = y - cy
+    norm = float(np.hypot(dx, dy))
+    if norm == 0:
+        dx, dy = 1.0, 0.0
+        norm = 1.0
+    step_x = dx / norm
+    step_y = dy / norm
+    h, w = bounds
+    for _ in range(max_steps):
+        if not existing:
+            break
+        distances = np.sum((np.array(existing) - np.array([x, y])) ** 2, axis=1)
+        if np.all(distances >= min_center_distance**2):
+            break
+        x = int(round(x + step_x))
+        y = int(round(y + step_y))
+        if x < 0 or y < 0 or x >= w or y >= h:
+            break
+    return x, y
+
+
 def plan_surgery(
     image: Image.Image,
     mask: np.ndarray,
@@ -107,6 +147,7 @@ def plan_surgery(
     for component in components:
         component_centers: List[Tuple[int, int]] = []
         curve_mask = component.copy()
+        component_center = _component_centroid(component)
         layer_count = 0
         while True:
             if layer_count >= max_layers:
@@ -132,24 +173,30 @@ def plan_surgery(
                         continue
                     if mask_bin[y, x] == 1:
                         continue
-                    if component_centers:
-                        centers_np = np.array(component_centers, dtype=np.int32)
-                        distances = np.sum((centers_np - np.array([x, y])) ** 2, axis=1)
-                        if np.any(distances < min_center_distance**2):
-                            continue
-                    component_centers.append((int(x), int(y)))
-                    layer_added.append((int(x), int(y)))
-            if not layer_added:
-                curve_mask = dilated
-                layer_count += 1
-                if layer_count > 100:
-                    break
-                continue
-            layer_mask = _circle_mask(curve_mask.shape, layer_added, radius)
-            if layer_count == 0:
-                curve_mask = layer_mask
-            else:
-                curve_mask = np.maximum(curve_mask, layer_mask)
+                    adjusted = _push_outward(
+                        (int(x), int(y)),
+                        component_center,
+                        component_centers,
+                        min_center_distance,
+                        (h, w),
+                    )
+                    ax, ay = adjusted
+                    if not (0 <= ax < w and 0 <= ay < h):
+                        continue
+                    layer_added.append((ax, ay))
+            verified_layer: List[Tuple[int, int]] = []
+            for x, y in layer_added:
+                if verified_layer:
+                    distances = np.sum(
+                        (np.array(verified_layer) - np.array([x, y])) ** 2, axis=1
+                    )
+                    if np.any(distances < min_center_distance**2):
+                        continue
+                verified_layer.append((x, y))
+            if verified_layer:
+                component_centers.extend(verified_layer)
+            layer_mask = _circle_mask(curve_mask.shape, verified_layer, radius)
+            curve_mask = layer_mask if verified_layer else dilated
             layer_count += 1
             if layer_count > 100:
                 break
