@@ -124,7 +124,7 @@ def plan_surgery(
                 break
             layer_added = []
             for contour in contours:
-                points = _contour_points(contour, spacing=min_center_distance)
+                points = _contour_points(contour, spacing=min_center_distance * 0.85)
                 if points:
                     all_curve_points.append(np.array(points, dtype=np.int32))
                 for x, y in points:
