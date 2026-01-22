@@ -104,16 +104,21 @@ def plan_surgery(
     all_curve_points: List[np.ndarray] = []
 
     components = _collect_component_masks(mask_bin)
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (radius * 2 + 1, radius * 2 + 1))
-
     for component in components:
-        base_mask = component.copy()
         component_centers: List[Tuple[int, int]] = []
+        curve_mask = component.copy()
         layer_count = 0
         while True:
             if layer_count >= max_layers:
                 break
-            dilated = cv2.dilate(base_mask, kernel)
+            if layer_count == 0:
+                dilate_radius = radius
+            else:
+                dilate_radius = radius + spot_distance
+            kernel = cv2.getStructuringElement(
+                cv2.MORPH_ELLIPSE, (dilate_radius * 2 + 1, dilate_radius * 2 + 1)
+            )
+            dilated = cv2.dilate(curve_mask, kernel)
             contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
             if not contours:
                 break
@@ -136,7 +141,11 @@ def plan_surgery(
                     layer_added.append((int(x), int(y)))
             if not layer_added:
                 break
-            base_mask = np.maximum(base_mask, _circle_mask(base_mask.shape, layer_added, radius))
+            layer_mask = _circle_mask(curve_mask.shape, layer_added, radius)
+            if layer_count == 0:
+                curve_mask = layer_mask
+            else:
+                curve_mask = np.maximum(curve_mask, layer_mask)
             layer_count += 1
             if layer_count > 100:
                 break
