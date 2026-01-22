@@ -98,7 +98,6 @@ def plan_surgery(
 
     mask_bin = binarize_mask(mask)
     mask_bin = fill_small_holes(mask_bin, area_threshold=200)
-    area_bin = binarize_mask(area_mask) if area_mask is not None else None
     h, w = mask_bin.shape
 
     all_centers: List[Tuple[int, int]] = []
@@ -127,8 +126,6 @@ def plan_surgery(
                     if not (0 <= x < w and 0 <= y < h):
                         continue
                     if mask_bin[y, x] == 1:
-                        continue
-                    if area_bin is not None and area_bin[y, x] == 0:
                         continue
                     if component_centers:
                         centers_np = np.array(component_centers, dtype=np.int32)
