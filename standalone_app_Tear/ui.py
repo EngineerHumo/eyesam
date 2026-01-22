@@ -56,6 +56,7 @@ class MainWindow:
         self.mouse_over_canvas = False
         self.spot_diameter_var = tk.IntVar(value=DEFAULT_SPOT_DIAMETER)
         self.spot_distance_var = tk.IntVar(value=DEFAULT_SPOT_DISTANCE)
+        self.spot_layers_var = tk.IntVar(value=3)
         self.exposure_time_var = tk.IntVar(value=50)
 
         self._setup_fonts()
@@ -167,6 +168,14 @@ class MainWindow:
         tk.Label(slider_frame, text="参数设置", font=tkfont.Font(weight="bold")).pack(
             pady=(6, 10)
         )
+        self._add_spinbox(
+            slider_frame,
+            label="光斑层数",
+            var=self.spot_layers_var,
+            from_=1,
+            to=6,
+            command=self._on_spot_params_change,
+        )
         self._add_slider(
             slider_frame,
             label="光斑直径",
@@ -240,6 +249,32 @@ class MainWindow:
             command=_on_change,
             length=160,
         ).pack()
+
+    def _add_spinbox(
+        self,
+        parent: tk.Frame,
+        label: str,
+        var: tk.IntVar,
+        from_: int,
+        to: int,
+        command: Optional[Callable[[], None]],
+    ) -> None:
+        frame = tk.Frame(parent)
+        frame.pack(pady=6)
+        tk.Label(frame, text=label).pack(pady=(0, 6))
+        spinbox = tk.Spinbox(
+            frame,
+            from_=from_,
+            to=to,
+            textvariable=var,
+            width=6,
+            command=command,
+        )
+        spinbox.bind(
+            "<KeyRelease>",
+            lambda _event: command() if command else None,
+        )
+        spinbox.pack()
 
     def _update_button_states(self, initial: bool = False) -> None:
         if initial:
@@ -443,6 +478,7 @@ class MainWindow:
                 self.area_mask,
                 spot_diameter=self.spot_diameter_var.get(),
                 spot_distance=self.spot_distance_var.get(),
+                max_layers=self.spot_layers_var.get(),
             )
             self._apply_plan(result, plan, display_mask)
             self.state.has_plan = True
@@ -482,6 +518,7 @@ class MainWindow:
             self.area_mask,
             spot_diameter=self.spot_diameter_var.get(),
             spot_distance=self.spot_distance_var.get(),
+            max_layers=self.spot_layers_var.get(),
         )
         self._apply_plan(result, plan, display_mask)
         self._start_preview_loop()
@@ -576,6 +613,7 @@ class MainWindow:
             self.area_mask,
             spot_diameter=self.spot_diameter_var.get(),
             spot_distance=self.spot_distance_var.get(),
+            max_layers=self.spot_layers_var.get(),
         )
         overlay = self._build_preview_overlay(preview_plan)
         self._render_overlay(overlay)
@@ -686,6 +724,7 @@ class MainWindow:
             self.area_mask,
             spot_diameter=self.spot_diameter_var.get(),
             spot_distance=self.spot_distance_var.get(),
+            max_layers=self.spot_layers_var.get(),
         )
         self.plan = plan
         self.hidden_centers = {center for center in self.hidden_centers if center in plan.circle_centers}

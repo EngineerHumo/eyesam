@@ -89,6 +89,7 @@ def plan_surgery(
     area_mask: np.ndarray | None,
     spot_diameter: int,
     spot_distance: int,
+    max_layers: int,
 ) -> PlanResult:
     overlay = image.copy()
     draw = ImageDraw.Draw(overlay)
@@ -111,6 +112,8 @@ def plan_surgery(
         component_centers: List[Tuple[int, int]] = []
         layer_count = 0
         while True:
+            if layer_count >= max_layers:
+                break
             dilated = cv2.dilate(base_mask, kernel)
             contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
             if not contours:
