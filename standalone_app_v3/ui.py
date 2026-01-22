@@ -3,6 +3,7 @@ import tkinter as tk
 from dataclasses import dataclass
 from tkinter import filedialog, messagebox
 from tkinter import font as tkfont
+from tkinter import ttk
 from typing import List, Optional, Tuple
 
 import numpy as np
@@ -100,6 +101,7 @@ class MainWindow:
 
         self._setup_fonts()
         self._setup_ui()
+        self._hide_progress()
 
     def _setup_fonts(self) -> None:
         default_font = tkfont.nametofont("TkDefaultFont")
@@ -144,6 +146,7 @@ class MainWindow:
 
         side_panel = tk.Frame(main_frame)
         side_panel.pack(side=tk.RIGHT, fill=tk.Y)
+        self.side_panel = side_panel
 
         scheme_frame = tk.Frame(side_panel)
         scheme_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(8, 4), pady=8)
@@ -155,6 +158,26 @@ class MainWindow:
         slider_frame = tk.Frame(side_panel)
         slider_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(4, 8), pady=8)
         self.slider_frame = slider_frame
+
+        self.progress_frame = tk.Frame(self.root, relief=tk.RIDGE, borderwidth=2)
+        self.progress_var = tk.DoubleVar(value=0.0)
+        self.progress_label = tk.Label(
+            self.progress_frame, text="AI规划中", font=tkfont.Font(size=13, weight="bold")
+        )
+        self.progress_label.pack(padx=12, pady=(10, 6))
+        style = ttk.Style()
+        style_name = "Horizontal.TProgressbar"
+        style.configure(style_name, thickness=18)
+        self.progress_bar = ttk.Progressbar(
+            self.progress_frame,
+            orient=tk.HORIZONTAL,
+            mode="determinate",
+            maximum=100,
+            variable=self.progress_var,
+            length=320,
+            style=style_name,
+        )
+        self.progress_bar.pack(padx=16, pady=(0, 12), fill=tk.X)
 
         ai_tool_frame = tk.Frame(button_frame, relief=tk.GROOVE, borderwidth=2)
         ai_tool_frame.pack(side=tk.TOP, fill=tk.X, padx=8, pady=8)
@@ -462,6 +485,7 @@ class MainWindow:
             scale_y=model_size[1] / image.height,
         )
 
+        self._show_progress()
         (
             scheme_masks,
             scheme_logits,
@@ -472,7 +496,7 @@ class MainWindow:
             faz_center,
             area_mask,
             _faz_mask,
-        ) = self.pipeline.run_initial(image, model_size)
+        ) = self.pipeline.run_initial(image, model_size, progress_callback=self._update_progress)
         self.spot_diameter_var.set(DEFAULT_SPOT_DIAMETER)
         self.spot_distance_var.set(DEFAULT_SPOT_DISTANCE)
         self.spot_diameter = DEFAULT_SPOT_DIAMETER
@@ -500,6 +524,7 @@ class MainWindow:
         else:
             self._set_scheme_controls_enabled(False)
             self._render_overlay(self.original_pil)
+        self._complete_progress()
 
     def _render_overlay(self, overlay: Image.Image) -> None:
         overlay = self._apply_faz_overlay(overlay)
@@ -509,6 +534,28 @@ class MainWindow:
         self.canvas.config(width=self.display_size[0], height=self.display_size[1])
         self.canvas.create_image(0, 0, image=self.display_image, anchor=tk.NW)
         self.canvas.configure(scrollregion=(0, 0, self.display_size[0], self.display_size[1]))
+
+    def _show_progress(self) -> None:
+        self.progress_var.set(0.0)
+        self.progress_frame.place(relx=0.5, rely=0.5, anchor="center")
+        self.progress_frame.lift()
+        self.root.update_idletasks()
+
+    def _update_progress(self, call_count: int) -> None:
+        progress = min(100, call_count * 7)
+        self.progress_var.set(float(progress))
+        self.root.update_idletasks()
+
+    def _complete_progress(self) -> None:
+        if not self.progress_frame.winfo_ismapped():
+            return
+        self.progress_var.set(100.0)
+        self.root.update_idletasks()
+        self._hide_progress()
+
+    def _hide_progress(self) -> None:
+        if self.progress_frame.winfo_ismapped():
+            self.progress_frame.place_forget()
 
     def _compute_faz_ellipse(self) -> None:
         self.faz_ellipse = None
