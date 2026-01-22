@@ -572,10 +572,11 @@ class MainWindow:
                 click=click_list[idx] if idx < len(click_list) else None,
             )
             self.schemes.append(scheme)
-        self._assign_remaining_circles()
         self._refresh_scheme_buttons()
         self.plan = self.schemes[0].plan if self.schemes else None
         self.auto_mode = len(self.schemes) > 1
+        if self.auto_mode:
+            self._assign_remaining_circles()
         if self.auto_mode:
             self._set_plan_controls_enabled(False)
         else:
@@ -599,7 +600,8 @@ class MainWindow:
             )
             scheme.plan = plan
             scheme.circles = list(plan.circle_centers)
-        self._assign_remaining_circles()
+        if self.auto_mode:
+            self._assign_remaining_circles()
         self.plan = self.schemes[0].plan if self.schemes else None
         self._update_start_button_state()
         self._render_scheme_overlay()
