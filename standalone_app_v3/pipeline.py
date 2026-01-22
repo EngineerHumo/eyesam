@@ -125,6 +125,8 @@ class SurgicalPipeline:
 
         area_total = self._mask_area(area_bin)
         scheme_masks = [display_mask]
+        scheme_logits = [current_result.logits]
+        scheme_clicks = [last_auto_click]
         scheme_union = display_mask.copy()
         coverage = self._mask_area(scheme_union) / area_total if area_total > 0 else 0.0
         if coverage >= 0.9:
@@ -139,7 +141,7 @@ class SurgicalPipeline:
                     break
                 new_center = inscribed_center(remaining)
                 LOGGER.info("auto_scheme_click=(%d,%d)", new_center[0], new_center[1])
-                candidate_result, _ = self._run_first_with_click(
+                candidate_result, candidate_click = self._run_first_with_click(
                     first_image, resized_hw, new_center
                 )
                 run_count += 1
@@ -151,6 +153,8 @@ class SurgicalPipeline:
                 candidate_mask = self._apply_area_constraint(candidate_mask, area_display_mask)
                 if self._is_valid_scheme(candidate_mask, scheme_masks):
                     scheme_masks.append(candidate_mask)
+                    scheme_logits.append(candidate_result.logits)
+                    scheme_clicks.append(candidate_click)
                     scheme_union = np.maximum(scheme_union, candidate_mask)
                     coverage = (
                         self._mask_area(scheme_union) / area_total if area_total > 0 else coverage
@@ -159,6 +163,8 @@ class SurgicalPipeline:
                     rejected_union = np.maximum(rejected_union, candidate_mask)
         return (
             scheme_masks,
+            scheme_logits,
+            scheme_clicks,
             current_result.logits,
             last_auto_click,
             current_click,

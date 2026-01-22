@@ -39,6 +39,8 @@ class SchemeData:
     plan: PlanResult
     circles: List[Tuple[int, int]]
     color: Tuple[int, int, int]
+    logits: Optional[np.ndarray]
+    click: Optional[Click]
 
 
 @dataclass
@@ -63,9 +65,12 @@ class MainWindow:
         self.faz_center: Optional[tuple[int, int]] = None
         self.last_auto_click: Optional[tuple[int, int]] = None
         self.area_mask: Optional[np.ndarray] = None
+        self.faz_mask: Optional[np.ndarray] = None
+        self.faz_ellipse: Optional[Tuple[Tuple[float, float], Tuple[float, float], float]] = None
         self.schemes: List[SchemeData] = []
         self.scheme_buttons: List[tk.Button] = []
         self.selected_scheme_index: Optional[int] = None
+        self.auto_mode = False
         self.display_size = (640, 640)
         self.display_scale_x = 1.0
         self.display_scale_y = 1.0
@@ -82,15 +87,15 @@ class MainWindow:
         self.exposure_time_var = tk.IntVar(value=self.exposure_time)
         self.scheme_colors = [
             (0, 112, 255),
-            (255, 99, 71),
+            (220, 20, 60),
             (60, 179, 113),
-            (255, 165, 0),
             (138, 43, 226),
             (0, 206, 209),
             (199, 21, 133),
             (160, 82, 45),
             (128, 0, 0),
             (0, 128, 128),
+            (0, 0, 0),
         ]
 
         self._setup_fonts()
@@ -221,11 +226,19 @@ class MainWindow:
         self._update_button_states(initial=True)
 
     def _setup_scheme_column(self) -> None:
-        tk.Label(self.scheme_frame, text="方案列表", font=tkfont.Font(weight="bold")).pack(
+        tk.Label(self.scheme_frame, text="区域列表", font=tkfont.Font(weight="bold")).pack(
             pady=(6, 4)
         )
         self.scheme_button_container = tk.Frame(self.scheme_frame)
         self.scheme_button_container.pack(fill=tk.Y)
+        self.btn_start_from_region = tk.Button(
+            self.scheme_frame,
+            text="从此区域开始规划",
+            width=16,
+            state=tk.DISABLED,
+            command=self._start_from_region,
+        )
+        self.btn_start_from_region.pack(pady=(8, 0))
 
     def _setup_sliders(self) -> None:
         tk.Label(self.slider_frame, text="参数设置", font=tkfont.Font(weight="bold")).pack(
@@ -444,6 +457,8 @@ class MainWindow:
 
         (
             scheme_masks,
+            scheme_logits,
+            scheme_clicks,
             logits,
             last_auto_click,
             last_click,
@@ -464,18 +479,23 @@ class MainWindow:
         self._update_button_states()
         self._refresh_toggle_buttons()
         self.schemes = []
+        self.auto_mode = False
         self.selected_scheme_index = None
         self._refresh_scheme_buttons()
         self.faz_center = faz_center
         self.last_auto_click = last_click
         self.area_mask = area_mask
+        self.faz_mask = _faz_mask
+        self._compute_faz_ellipse()
         LOGGER.info("initial_plan_clicks=%d", 1 if last_auto_click else 0)
         if scheme_masks:
-            self._build_schemes(scheme_masks)
+            self._build_schemes(scheme_masks, scheme_logits, scheme_clicks)
         else:
+            self._set_scheme_controls_enabled(False)
             self._render_overlay(self.original_pil)
 
     def _render_overlay(self, overlay: Image.Image) -> None:
+        overlay = self._apply_faz_overlay(overlay)
         display_overlay = overlay.resize(self.display_size, Image.BILINEAR)
         self.display_image = ImageTk.PhotoImage(display_overlay)
         self.canvas.delete("all")
@@ -483,10 +503,52 @@ class MainWindow:
         self.canvas.create_image(0, 0, image=self.display_image, anchor=tk.NW)
         self.canvas.configure(scrollregion=(0, 0, self.display_size[0], self.display_size[1]))
 
+    def _compute_faz_ellipse(self) -> None:
+        self.faz_ellipse = None
+        if self.faz_mask is None:
+            return
+        faz_bin = binarize_mask(self.faz_mask)
+        contours, _ = cv2.findContours(faz_bin, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            return
+        contour = max(contours, key=cv2.contourArea)
+        if len(contour) < 5:
+            return
+        self.faz_ellipse = cv2.fitEllipse(contour)
+
+    def _apply_faz_overlay(self, image: Image.Image) -> Image.Image:
+        if self.faz_ellipse is None:
+            return image
+        base = image.convert("RGBA")
+        overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay, "RGBA")
+        (cx, cy), (width, height), angle = self.faz_ellipse
+        angle_rad = np.deg2rad(angle)
+        cos_a = np.cos(angle_rad)
+        sin_a = np.sin(angle_rad)
+        rx = width / 2.0
+        ry = height / 2.0
+        points = []
+        for t in np.linspace(0, 2 * np.pi, num=200, endpoint=False):
+            x = rx * np.cos(t)
+            y = ry * np.sin(t)
+            xr = x * cos_a - y * sin_a
+            yr = x * sin_a + y * cos_a
+            points.append((cx + xr, cy + yr))
+        draw.polygon(points, fill=(255, 170, 0, 77), outline=(255, 170, 0, 180))
+        draw.text((cx, cy), "🈲", fill=(255, 170, 0, 200), anchor="mm")
+        merged = Image.alpha_composite(base, overlay)
+        return merged.convert("RGB")
+
     def _circle_radius(self) -> int:
         return max(1, int(round(self.spot_diameter / 2)))
 
-    def _build_schemes(self, masks: List[np.ndarray]) -> None:
+    def _build_schemes(
+        self,
+        masks: List[np.ndarray],
+        logits_list: List[np.ndarray],
+        click_list: List[Optional[Click]],
+    ) -> None:
         if self.original_pil is None:
             return
         if self.faz_center is None:
@@ -506,11 +568,19 @@ class MainWindow:
                 plan=plan,
                 circles=list(plan.circle_centers),
                 color=self.scheme_colors[idx % len(self.scheme_colors)],
+                logits=logits_list[idx] if idx < len(logits_list) else None,
+                click=click_list[idx] if idx < len(click_list) else None,
             )
             self.schemes.append(scheme)
         self._assign_remaining_circles()
         self._refresh_scheme_buttons()
         self.plan = self.schemes[0].plan if self.schemes else None
+        self.auto_mode = len(self.schemes) > 1
+        if self.auto_mode:
+            self._set_plan_controls_enabled(False)
+        else:
+            self._set_plan_controls_enabled(True)
+        self._set_scheme_controls_enabled(True)
         self._render_scheme_overlay()
 
     def _rebuild_scheme_plans(self) -> None:
@@ -531,6 +601,7 @@ class MainWindow:
             scheme.circles = list(plan.circle_centers)
         self._assign_remaining_circles()
         self.plan = self.schemes[0].plan if self.schemes else None
+        self._update_start_button_state()
         self._render_scheme_overlay()
 
     def _assign_remaining_circles(self) -> None:
@@ -596,8 +667,8 @@ class MainWindow:
             "十五",
         ]
         if index < len(chinese):
-            return f"方案{chinese[index]}"
-        return f"方案{index + 1}"
+            return f"区域{chinese[index]}"
+        return f"区域{index + 1}"
 
     def _refresh_scheme_buttons(self) -> None:
         for widget in self.scheme_button_container.winfo_children():
@@ -613,6 +684,7 @@ class MainWindow:
             btn.pack(pady=4)
             self.scheme_buttons.append(btn)
         self._update_scheme_button_states()
+        self._update_start_button_state()
 
     def _toggle_scheme_selection(self, index: int) -> None:
         if self.selected_scheme_index == index:
@@ -620,11 +692,81 @@ class MainWindow:
         else:
             self.selected_scheme_index = index
         self._update_scheme_button_states()
+        self._update_start_button_state()
         self._render_scheme_overlay()
 
     def _update_scheme_button_states(self) -> None:
         for idx, btn in enumerate(self.scheme_buttons):
             btn.config(relief=tk.SUNKEN if idx == self.selected_scheme_index else tk.RAISED)
+
+    def _update_start_button_state(self) -> None:
+        if not self.auto_mode:
+            self.btn_start_from_region.config(state=tk.DISABLED)
+            return
+        state = tk.NORMAL if self.selected_scheme_index is not None else tk.DISABLED
+        self.btn_start_from_region.config(state=state)
+
+    def _set_plan_controls_enabled(self, enabled: bool) -> None:
+        state = tk.NORMAL if enabled else tk.DISABLED
+        self.btn_positive.config(state=state)
+        self.btn_negative.config(state=state)
+        self.btn_add_point.config(state=state)
+        self.btn_remove_point.config(state=state)
+        self.btn_add_area.config(state=state)
+        self.btn_remove_area.config(state=state)
+        self.btn_clear.config(state=state)
+        self.btn_confirm.config(state=state)
+
+    def _set_scheme_controls_enabled(self, enabled: bool) -> None:
+        state = tk.NORMAL if enabled else tk.DISABLED
+        for btn in self.scheme_buttons:
+            btn.config(state=state)
+        if enabled:
+            self._update_start_button_state()
+        else:
+            self.btn_start_from_region.config(state=tk.DISABLED)
+
+    def _start_from_region(self) -> None:
+        if self.selected_scheme_index is None or not self.schemes:
+            return
+        selected = self.schemes[self.selected_scheme_index]
+        if selected.click is None:
+            messagebox.showinfo("提示", "未记录该区域的点击点")
+            return
+        if self.state.current_mask is None:
+            return
+        circle_radius = self._circle_radius()
+        updated_mask = selected.mask.copy()
+        for center in selected.circles:
+            if updated_mask[center[1], center[0]] == 0:
+                cv2.circle(updated_mask, center, circle_radius, 1, thickness=-1)
+        updated_mask = self._apply_area_constraint(updated_mask)
+        if self.faz_center is None:
+            self.faz_center = (self.original_pil.width // 2, self.original_pil.height // 2)
+        updated_plan = plan_surgery(
+            self.original_pil,
+            updated_mask,
+            self.faz_center,
+            area_mask=self.area_mask,
+            spot_diameter=self.spot_diameter,
+            spot_distance=self.spot_distance,
+        )
+        selected.mask = updated_mask
+        selected.plan = updated_plan
+        selected.circles = list(updated_plan.circle_centers)
+        self.state.current_mask = updated_mask
+        self.state.current_logits = selected.logits
+        self.state.auto_click = selected.click
+        self.state.clicks = [selected.click]
+        self.schemes = [selected]
+        self.selected_scheme_index = None
+        self.auto_mode = False
+        self._refresh_scheme_buttons()
+        self._set_plan_controls_enabled(True)
+        self._set_scheme_controls_enabled(False)
+        self.plan = selected.plan
+        self.state.has_plan = True
+        self._render_scheme_overlay()
 
     def _render_scheme_overlay(self) -> None:
         if self.original_pil is None:
@@ -817,7 +959,9 @@ class MainWindow:
         self.plan = None
         self.schemes = []
         self.selected_scheme_index = None
+        self.auto_mode = False
         self._refresh_scheme_buttons()
+        self._set_scheme_controls_enabled(False)
         self.last_mouse_pos = None
         self._stop_preview_loop()
         self._update_button_states()
