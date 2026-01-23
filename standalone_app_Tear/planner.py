@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw
 
-from utils import PlanResult, binarize_mask, fill_small_holes
+from utils import PlanResult, binarize_mask, fill_small_holes, largest_connected_component
 
 
 def _contour_points(contour: np.ndarray, spacing: float) -> List[Tuple[int, int]]:
@@ -127,6 +127,7 @@ def plan_surgery(
     image: Image.Image,
     mask: np.ndarray,
     area_mask: np.ndarray | None,
+    faz_mask: np.ndarray | None,
     spot_diameter: int,
     spot_distance: int,
     max_layers: int,
@@ -138,6 +139,10 @@ def plan_surgery(
 
     mask_bin = binarize_mask(mask)
     mask_bin = fill_small_holes(mask_bin, area_threshold=200)
+    faz_bin = None
+    if faz_mask is not None:
+        faz_bin = largest_connected_component(binarize_mask(faz_mask))
+
     h, w = mask_bin.shape
 
     all_centers: List[Tuple[int, int]] = []
@@ -173,6 +178,8 @@ def plan_surgery(
                         continue
                     if mask_bin[y, x] == 1:
                         continue
+                    if faz_bin is not None and faz_bin[y, x] == 1:
+                        continue
                     adjusted = _push_outward(
                         (int(x), int(y)),
                         component_center,
@@ -182,6 +189,8 @@ def plan_surgery(
                     )
                     ax, ay = adjusted
                     if not (0 <= ax < w and 0 <= ay < h):
+                        continue
+                    if faz_bin is not None and faz_bin[ay, ax] == 1:
                         continue
                     layer_added.append((ax, ay))
             verified_layer: List[Tuple[int, int]] = []
@@ -203,6 +212,10 @@ def plan_surgery(
         all_centers.extend(component_centers)
 
     all_centers = _remove_overlaps(all_centers, min_center_distance=min_center_distance)
+    if faz_bin is not None and all_centers:
+        all_centers = [
+            (x, y) for (x, y) in all_centers if 0 <= x < w and 0 <= y < h and faz_bin[y, x] == 0
+        ]
 
     for x, y in all_centers:
         draw.ellipse(

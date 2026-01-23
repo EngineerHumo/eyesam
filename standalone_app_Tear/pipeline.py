@@ -1,5 +1,5 @@
 import logging
-from typing import List
+from typing import List, Tuple
 
 import cv2
 import numpy as np
@@ -17,9 +17,9 @@ class SurgicalPipeline:
         self.first_model = OnnxModel(f"{onnx_dir}/first.onnx")
         self.iteration_model = OnnxModel(f"{onnx_dir}/iteration.onnx")
 
-    def run_presegmentation(self, image_pil) -> np.ndarray:
+    def run_presegmentation(self, image_pil) -> Tuple[np.ndarray, np.ndarray]:
         pre_result = self.pre_model.infer(np.array(image_pil))
-        return pre_result.area_mask
+        return pre_result.area_mask, pre_result.faz_mask
 
     def run_iteration(
         self,

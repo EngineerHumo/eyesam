@@ -142,6 +142,22 @@ def resize_mask(mask: np.ndarray, size: Tuple[int, int]) -> np.ndarray:
     return resized.astype(np.uint8)
 
 
+def fit_ellipse_to_mask(
+    mask: np.ndarray,
+) -> Tuple[Tuple[float, float], Tuple[float, float], float] | None:
+    if mask.ndim != 2:
+        raise ValueError("mask must be 2D")
+    if mask.max() == 0:
+        return None
+    contours, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    if not contours:
+        return None
+    largest = max(contours, key=cv2.contourArea)
+    if len(largest) < 5:
+        return None
+    return cv2.fitEllipse(largest)
+
+
 def log_clicks(clicks: Iterable[Click], prefix: str) -> None:
     click_list = list(clicks)
     coords = np.array([[c.x, c.y] for c in click_list], dtype=np.float32)

@@ -5,6 +5,7 @@ from tkinter import filedialog, messagebox
 from tkinter import font as tkfont
 from typing import Callable, List, Optional, Set, Tuple
 
+import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageTk
 
@@ -17,7 +18,10 @@ from utils import (
     ModelImage,
     PlanResult,
     SUPPORTED_CHINESE_FONTS,
+    binarize_mask,
+    fit_ellipse_to_mask,
     fill_small_holes,
+    largest_connected_component,
     load_image,
     prepare_image_for_model,
     remove_small_components,
@@ -46,6 +50,8 @@ class MainWindow:
         self.display_image: Optional[ImageTk.PhotoImage] = None
         self.plan: Optional[PlanResult] = None
         self.area_mask: Optional[np.ndarray] = None
+        self.faz_mask: Optional[np.ndarray] = None
+        self.faz_ellipse: Optional[Tuple[Tuple[float, float], Tuple[float, float], float]] = None
         self.manual_centers: List[Tuple[int, int]] = []
         self.hidden_centers: Set[Tuple[int, int]] = set()
         self.display_size = (640, 640)
@@ -371,7 +377,15 @@ class MainWindow:
             scale_x=model_size[0] / image.width,
             scale_y=model_size[1] / image.height,
         )
-        self.area_mask = self.pipeline.run_presegmentation(image)
+        self.area_mask, faz_mask = self.pipeline.run_presegmentation(image)
+        self.faz_mask = None
+        self.faz_ellipse = None
+        if faz_mask is not None:
+            faz_bin = binarize_mask(faz_mask)
+            faz_lcc = largest_connected_component(faz_bin)
+            if faz_lcc.any():
+                self.faz_mask = faz_lcc
+                self.faz_ellipse = fit_ellipse_to_mask(faz_lcc)
         self.state = AppState(clicks=[])
         self.plan = None
         self.manual_centers = []
@@ -409,6 +423,7 @@ class MainWindow:
             self.original_pil,
             display_mask,
             self.area_mask,
+            self.faz_mask,
             spot_diameter=self.spot_diameter_var.get(),
             spot_distance=self.spot_distance_var.get(),
             max_layers=self.spot_layers_var.get(),
@@ -419,6 +434,7 @@ class MainWindow:
         self._render_current_plan()
 
     def _render_overlay(self, overlay: Image.Image) -> None:
+        overlay = self._apply_faz_overlay(overlay)
         display_overlay = overlay.resize(self.display_size, Image.BILINEAR)
         self.display_image = ImageTk.PhotoImage(display_overlay)
         self.canvas.delete("all")
@@ -451,6 +467,33 @@ class MainWindow:
                 width=2,
             )
         return base.convert("RGB")
+
+    def _apply_faz_overlay(self, overlay: Image.Image) -> Image.Image:
+        if self.faz_ellipse is None:
+            return overlay
+        base = overlay.convert("RGBA")
+        height, width = base.height, base.width
+        overlay_rgba = np.zeros((height, width, 4), dtype=np.uint8)
+        (cx, cy), (major, minor), angle = self.faz_ellipse
+        axes = (
+            max(int(round(major / 2)), 1),
+            max(int(round(minor / 2)), 1),
+        )
+        alpha = int(round(255 * 0.3))
+        color = (0, 180, 255, alpha)
+        cv2.ellipse(
+            overlay_rgba,
+            (int(round(cx)), int(round(cy))),
+            axes,
+            float(angle),
+            0,
+            360,
+            color,
+            thickness=-1,
+        )
+        overlay_image = Image.fromarray(cv2.cvtColor(overlay_rgba, cv2.COLOR_BGRA2RGBA))
+        composed = Image.alpha_composite(base, overlay_image)
+        return composed.convert("RGB")
 
     def _canvas_coords(self, event) -> Tuple[float, float]:
         return (self.canvas.canvasx(event.x), self.canvas.canvasy(event.y))
@@ -511,6 +554,7 @@ class MainWindow:
                 self.original_pil,
                 display_mask,
                 self.area_mask,
+                self.faz_mask,
                 spot_diameter=self.spot_diameter_var.get(),
                 spot_distance=self.spot_distance_var.get(),
                 max_layers=self.spot_layers_var.get(),
@@ -551,6 +595,7 @@ class MainWindow:
             self.original_pil,
             display_mask,
             self.area_mask,
+            self.faz_mask,
             spot_diameter=self.spot_diameter_var.get(),
             spot_distance=self.spot_distance_var.get(),
             max_layers=self.spot_layers_var.get(),
@@ -646,6 +691,7 @@ class MainWindow:
             self.original_pil,
             display_mask,
             self.area_mask,
+            self.faz_mask,
             spot_diameter=self.spot_diameter_var.get(),
             spot_distance=self.spot_distance_var.get(),
             max_layers=self.spot_layers_var.get(),
@@ -729,11 +775,21 @@ class MainWindow:
 
     def _is_inside_area_mask(self, point: Tuple[int, int]) -> bool:
         if self.area_mask is None:
-            return True
+            return not self._is_inside_faz_mask(point)
         x, y = point
         if y < 0 or x < 0 or y >= self.area_mask.shape[0] or x >= self.area_mask.shape[1]:
             return False
+        if self._is_inside_faz_mask(point):
+            return False
         return self.area_mask[y, x] > 0
+
+    def _is_inside_faz_mask(self, point: Tuple[int, int]) -> bool:
+        if self.faz_mask is None:
+            return False
+        x, y = point
+        if y < 0 or x < 0 or y >= self.faz_mask.shape[0] or x >= self.faz_mask.shape[1]:
+            return False
+        return self.faz_mask[y, x] > 0
 
     def _filter_manual_centers(self) -> None:
         if not self.plan:
@@ -757,6 +813,7 @@ class MainWindow:
             self.original_pil,
             self.state.current_mask,
             self.area_mask,
+            self.faz_mask,
             spot_diameter=self.spot_diameter_var.get(),
             spot_distance=self.spot_distance_var.get(),
             max_layers=self.spot_layers_var.get(),
