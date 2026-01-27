@@ -10,10 +10,9 @@ import (
 )
 
 func ComputeFAZCenter(mask utils.Mask) image.Point {
-	if mask.Width == 0 || mask.Height == 0 {
-		return image.Point{}
-	}
-	return image.Point{X: mask.Width / 2, Y: mask.Height / 2}
+	fazBin := utils.Binarize(mask, 1)
+	fazLcc := utils.LargestConnectedComponent(fazBin)
+	return utils.InscribedCenter(fazLcc)
 }
 
 func GenerateRingPoints(center image.Point, radius float64, minDistance int) []image.Point {
@@ -45,6 +44,7 @@ func PlanSurgery(
 	img image.Image,
 	mask utils.Mask,
 	fazCenter image.Point,
+	areaMask *utils.Mask,
 	spotDiameter int,
 	spotDistance int,
 ) utils.PlanResult {
@@ -52,15 +52,26 @@ func PlanSurgery(
 	overlay := image.NewRGBA(bounds)
 	draw.Draw(overlay, bounds, img, bounds.Min, draw.Src)
 
-	circleRadius := int(math.Max(1, math.Round(float64(spotDiameter)/2)))
-	radiusStep := int(math.Max(1, math.Round(float64(spotDiameter+spotDistance))))
-	minDistance := int(math.Max(1, math.Round(float64(spotDiameter+spotDistance))))
+	maskBin := utils.Binarize(mask, 1)
+	maskBin = utils.FillSmallHoles(maskBin, 200)
+	var areaBin *utils.Mask
+	if areaMask != nil {
+		bin := utils.Binarize(*areaMask, 1)
+		areaBin = &bin
+	}
 
+	h, w := maskBin.Height, maskBin.Width
+	radiusStep := int(math.Round(float64(spotDiameter + spotDistance)))
+	minDistance := int(math.Max(1, float64(spotDiameter+spotDistance)))
+	circleRadius := int(math.Max(1, math.Round(float64(spotDiameter)/2)))
 	maxRadius := int(math.Max(
 		hypot(fazCenter.X, fazCenter.Y),
 		math.Max(
-			hypot(bounds.Dx()-1-fazCenter.X, fazCenter.Y),
-			hypot(fazCenter.X, bounds.Dy()-1-fazCenter.Y),
+			hypot(fazCenter.X, h-1-fazCenter.Y),
+			math.Max(
+				hypot(w-1-fazCenter.X, fazCenter.Y),
+				hypot(w-1-fazCenter.X, h-1-fazCenter.Y),
+			),
 		),
 	))
 
@@ -73,10 +84,13 @@ func PlanSurgery(
 			curvePoints = append(curvePoints, ringPoints)
 		}
 		for _, pt := range ringPoints {
-			if pt.X < 0 || pt.Y < 0 || pt.X >= mask.Width || pt.Y >= mask.Height {
+			if pt.X < 0 || pt.Y < 0 || pt.X >= w || pt.Y >= h {
 				continue
 			}
-			if mask.At(pt.X, pt.Y) == 0 {
+			if maskBin.At(pt.X, pt.Y) == 0 {
+				continue
+			}
+			if areaBin != nil && areaBin.At(pt.X, pt.Y) == 0 {
 				continue
 			}
 			centers = append(centers, pt)
