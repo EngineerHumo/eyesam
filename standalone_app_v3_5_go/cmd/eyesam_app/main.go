@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"eyesam/standalone_app_v3_5_go/internal/onnxutil"
 	"eyesam/standalone_app_v3_5_go/internal/pipeline"
 	"eyesam/standalone_app_v3_5_go/internal/ui"
 )
@@ -23,6 +24,7 @@ func main() {
 	}
 
 	pipe := pipeline.New(onnxDir)
+	defer onnxutil.Shutdown()
 	if err := ui.Run(pipe); err != nil {
 		log.Printf("%v", err)
 		os.Exit(1)
