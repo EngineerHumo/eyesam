@@ -4,10 +4,10 @@ from typing import Callable, List, Optional, Tuple
 import cv2
 import numpy as np
 
-from inference import InferenceResult, OnnxModel
-from planner import compute_faz_center
-from preprocess import PreSegmentation
-from utils import (
+from .inference import InferenceResult, OnnxModel
+from .planner import compute_faz_center
+from .preprocess import PreSegmentation
+from .utils import (
     Click,
     ModelImage,
     binarize_mask,

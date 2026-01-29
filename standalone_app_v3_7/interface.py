@@ -7,8 +7,8 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from pipeline import SurgicalPipeline
-from utils import Click, ModelImage, load_image, prepare_image_for_model, resize_mask
+from .pipeline import SurgicalPipeline
+from .utils import Click, ModelImage, load_image, prepare_image_for_model, resize_mask
 
 LOGGER = logging.getLogger(__name__)
 

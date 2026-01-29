@@ -5,8 +5,8 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import onnxruntime as ort
 
-from onnx_utils import resolve_onnx_providers
-from utils import Click, binarize_mask, log_clicks, normalize_image, sigmoid
+from .onnx_utils import resolve_onnx_providers
+from .utils import Click, binarize_mask, log_clicks, normalize_image, sigmoid
 
 LOGGER = logging.getLogger(__name__)
 

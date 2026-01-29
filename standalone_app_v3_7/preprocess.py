@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 import onnxruntime as ort
 
-from onnx_utils import resolve_onnx_providers
+from .onnx_utils import resolve_onnx_providers
 
 CHANNEL_TO_LABEL = np.array([0, 3, 2, 1], dtype=np.uint8)
 
