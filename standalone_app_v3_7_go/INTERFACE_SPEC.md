@@ -1,0 +1,153 @@
+# standalone_app_v3_7_go 接口说明
+
+本文档描述 `standalone_app_v3_7_go/api.go` 中 `SurgicalInterface` 的调用方式、输入输出与文件格式。
+
+## 通用约定
+
+- **坐标系**：所有点击点坐标 `(x, y)` 与原始图像像素坐标一致。
+- **文件格式**：mask 与 logits 使用 `.npy` 保存，点击点与规划中心点使用 `.json` 保存。
+- **索引规则**：初始规划输出的 mask 编号从 `0` 开始递增。
+- **输出目录**：每次调用都会将结果写入外部传入的 `output_dir`。
+
+## 1) 初始规划（InitialPlan）
+
+### 输入要求
+- **image_path**：原始图像路径（任意可被读取的格式）。
+- **output_dir**：输出目录路径（若不存在会自动创建）。
+
+### 输出内容
+- 若干个 **初始规划 mask**（`.npy`）。
+- 每个 mask 对应的 **logits**（`.npy`）。
+- 每个 mask 对应的 **点击点坐标**（`.json`）。
+- **规划中心点**（`planning_center.json`）。
+
+### 输出文件命名规则
+- `mask_{index}.npy`
+- `logits_{index}.npy`
+- `clicks_{index}.json`
+- `planning_center.json`
+
+### 点击点文件格式
+```json
+{
+  "points": [
+    {"x": 512, "y": 384, "label": 1}
+  ]
+}
+```
+
+### 规划中心点格式
+```json
+{
+  "x": 521,
+  "y": 402
+}
+```
+
+### Go 调用示例
+```go
+api, err := eyesam.NewSurgicalInterface("standalone_app_v3_7_go/onnx")
+if err != nil {
+    panic(err)
+}
+artifacts, err := api.InitialPlan("/data/demo.png", "/data/output")
+if err != nil {
+    panic(err)
+}
+fmt.Println(artifacts.Masks)
+fmt.Println(artifacts.PlanningCenter)
+```
+
+---
+
+## 2) 选取初始方案（SelectInitialScheme）
+
+### 输入要求
+- **mask_index**：需要保留的 mask 编号（与 `InitialPlan` 输出的编号一致）。
+
+### 输出内容
+- **无显式返回值**。指定编号保留，其余 `mask/logits/clicks` 会被删除。
+
+### Go 调用示例
+```go
+if err := api.SelectInitialScheme(0); err != nil {
+    panic(err)
+}
+```
+
+---
+
+## 3) 正向/负向点击点（ApplyClicks）
+
+### 输入要求
+- **clicks_json**：点击点坐标文件路径（`.json`）。
+- 点击点格式：
+```json
+{
+  "points": [
+    {"x": 500, "y": 420, "label": 1},
+    {"x": 530, "y": 410, "label": 0}
+  ]
+}
+```
+
+### 输出内容
+- **新的 mask**（`.npy`）
+- **新的 logits**（`.npy`）
+- **更新后的点击点文件**（`.json`）
+
+### 输出文件说明
+- 若当前已有选定的初始方案，则覆盖对应的 `mask_{index}.npy / logits_{index}.npy / clicks_{index}.json`。
+- 若当前没有 mask（例如刚执行 `ClearCurrentPlan`），则写入：
+  - `current_mask.npy`
+  - `current_logits.npy`
+  - `current_clicks.json`
+
+### Go 调用示例
+```go
+result, err := api.ApplyClicks("/data/new_clicks.json")
+if err != nil {
+    panic(err)
+}
+fmt.Println(result["mask"], result["logits"], result["clicks"])
+```
+
+---
+
+## 4) 正向/负向点击点预览（PreviewClicks）
+
+### 输入要求
+- **clicks_json**：点击点坐标文件路径（`.json`），格式同上。
+
+### 输出内容
+- **临时 mask**（`.npy`），不保存临时 logits，不更新点击点文件。
+
+### 输出文件
+- `preview_mask.npy`
+
+### Go 调用示例
+```go
+previewPath, err := api.PreviewClicks("/data/new_clicks.json")
+if err != nil {
+    panic(err)
+}
+fmt.Println(previewPath)
+```
+
+---
+
+## 5) 清空当前手术方案（ClearCurrentPlan）
+
+### 输入要求
+- **无**。
+
+### 输出内容
+- **无显式返回值**。
+- 会删除当前方案对应的 mask/logits/clicks 文件（当前选择的初始方案或 `current_*` 文件）。
+
+### Go 调用示例
+```go
+if err := api.ClearCurrentPlan(); err != nil {
+    panic(err)
+}
+```
