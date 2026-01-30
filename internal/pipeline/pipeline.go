@@ -50,7 +50,10 @@ func New(onnxDir string) *Pipeline {
 }
 
 func (p *Pipeline) RunInitial(img image.Image, progress func(int)) (Result, error) {
-	firstW, firstH := p.FirstModel.ImageInputSize(img.Bounds().Dx(), img.Bounds().Dy())
+	firstW, firstH, err := p.FirstModel.ImageInputSize(img.Bounds().Dx(), img.Bounds().Dy())
+	if err != nil {
+		return Result{}, err
+	}
 	firstImage := utils.PrepareImageForModel(img, firstW, firstH)
 
 	preResult, err := p.PreModel.Infer(firstImage)

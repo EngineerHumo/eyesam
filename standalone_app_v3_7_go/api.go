@@ -85,7 +85,10 @@ func (s *SurgicalInterface) setImage(imagePath string) error {
 	if err != nil {
 		return err
 	}
-	firstW, firstH := s.pipeline.FirstModel.ImageInputSize(img.Bounds().Dx(), img.Bounds().Dy())
+	firstW, firstH, err := s.pipeline.FirstModel.ImageInputSize(img.Bounds().Dx(), img.Bounds().Dy())
+	if err != nil {
+		return err
+	}
 	modelImage := utils.PrepareImageForModel(img, firstW, firstH)
 	s.image = img
 	s.modelImage = &modelImage
