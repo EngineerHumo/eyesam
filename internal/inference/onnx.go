@@ -34,11 +34,11 @@ func (m *OnnxModel) initSession() error {
 		return nil
 	}
 	if err := onnxutil.InitializeEnvironment(); err != nil {
-		return err
+		return fmt.Errorf("initialize onnx environment (model=%s): %w", m.ModelPath, err)
 	}
 	inputs, outputs, err := ort.GetInputOutputInfo(m.ModelPath)
 	if err != nil {
-		return fmt.Errorf("inspect onnx io: %w", err)
+		return fmt.Errorf("inspect onnx io (model=%s): %w", m.ModelPath, err)
 	}
 	m.Inputs = inputs
 	m.Outputs = outputs
@@ -57,35 +57,37 @@ func (m *OnnxModel) initSession() error {
 	}
 	opts, err := onnxutil.SessionOptions()
 	if err != nil {
-		return err
+		return fmt.Errorf("build session options (model=%s): %w", m.ModelPath, err)
 	}
 	defer opts.Destroy()
 	session, err := ort.NewDynamicAdvancedSession(m.ModelPath, inputNames, outputNames, opts)
 	if err != nil {
-		return fmt.Errorf("create onnx session: %w", err)
+		return fmt.Errorf("create onnx session (model=%s): %w", m.ModelPath, err)
 	}
 	m.Session = session
 	return nil
 }
 
-func (m *OnnxModel) ImageInputSize(fallbackWidth, fallbackHeight int) (int, int) {
-	_ = m.initSession()
+func (m *OnnxModel) ImageInputSize(fallbackWidth, fallbackHeight int) (int, int, error) {
+	if err := m.initSession(); err != nil {
+		return 0, 0, fmt.Errorf("ImageInputSize initSession failed (model=%s): %w", m.ModelPath, err)
+	}
 	for _, shape := range m.InputShapes {
 		if len(shape) != 4 {
 			continue
 		}
 		if shape[1] == 1 || shape[1] == 3 {
 			if shape[2] > 0 && shape[3] > 0 {
-				return int(shape[3]), int(shape[2])
+				return int(shape[3]), int(shape[2]), nil
 			}
 		}
 		if shape[3] == 1 || shape[3] == 3 {
 			if shape[1] > 0 && shape[2] > 0 {
-				return int(shape[2]), int(shape[1])
+				return int(shape[2]), int(shape[1]), nil
 			}
 		}
 	}
-	return fallbackWidth, fallbackHeight
+	return 0, 0, fmt.Errorf("ImageInputSize could not determine model input size (model=%s, fallback=%dx%d, shapes=%v)", m.ModelPath, fallbackWidth, fallbackHeight, m.InputShapes)
 }
 
 func (m *OnnxModel) EnsureInitialized() error {
