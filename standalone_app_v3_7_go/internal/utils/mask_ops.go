@@ -6,7 +6,6 @@ import (
 	"image"
 	"log"
 	"math"
-	"sort"
 )
 
 func NormalizeImageBytes(data []uint8) []float32 {
@@ -688,8 +687,7 @@ func AreaPreservingRethreshold(labels Mask) Mask {
 	}
 	thresholdIndex := len(values) - yellowToAllocate
 	copyValues := append([]float64(nil), values...)
-	sort.Float64s(copyValues)
-	thresholdValue := copyValues[thresholdIndex]
+	thresholdValue := SelectKthFloat64(copyValues, thresholdIndex)
 	newYellow := NewMask(labels.Width, labels.Height)
 	selectedCount := 0
 	for i, v := range values {
@@ -861,8 +859,9 @@ func Erode(mask Mask, kernelSize int, ellipse bool) Mask {
 func DilateWithKernel(mask Mask, kernel []image.Point) Mask {
 	out := NewMask(mask.Width, mask.Height)
 	for y := 0; y < mask.Height; y++ {
+		base := y * mask.Width
 		for x := 0; x < mask.Width; x++ {
-			if mask.At(x, y) == 0 {
+			if mask.Data[base+x] == 0 {
 				continue
 			}
 			for _, k := range kernel {
@@ -871,7 +870,7 @@ func DilateWithKernel(mask Mask, kernel []image.Point) Mask {
 				if nx < 0 || ny < 0 || nx >= mask.Width || ny >= mask.Height {
 					continue
 				}
-				out.Set(nx, ny, 1)
+				out.Data[ny*mask.Width+nx] = 1
 			}
 		}
 	}
@@ -881,8 +880,9 @@ func DilateWithKernel(mask Mask, kernel []image.Point) Mask {
 func ErodeWithKernel(mask Mask, kernel []image.Point) Mask {
 	out := NewMask(mask.Width, mask.Height)
 	for y := 0; y < mask.Height; y++ {
+		base := y * mask.Width
 		for x := 0; x < mask.Width; x++ {
-			if mask.At(x, y) == 0 {
+			if mask.Data[base+x] == 0 {
 				continue
 			}
 			all := true
@@ -893,17 +893,57 @@ func ErodeWithKernel(mask Mask, kernel []image.Point) Mask {
 					all = false
 					break
 				}
-				if mask.At(nx, ny) == 0 {
+				if mask.Data[ny*mask.Width+nx] == 0 {
 					all = false
 					break
 				}
 			}
 			if all {
-				out.Set(x, y, 1)
+				out.Data[base+x] = 1
 			}
 		}
 	}
 	return out
+}
+
+func SelectKthFloat64(values []float64, k int) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+	if k < 0 {
+		k = 0
+	}
+	if k >= len(values) {
+		k = len(values) - 1
+	}
+	left := 0
+	right := len(values) - 1
+	for left < right {
+		pivot := partitionFloat64(values, left, right, (left+right)/2)
+		switch {
+		case k == pivot:
+			return values[pivot]
+		case k < pivot:
+			right = pivot - 1
+		default:
+			left = pivot + 1
+		}
+	}
+	return values[left]
+}
+
+func partitionFloat64(values []float64, left, right, pivot int) int {
+	pivotValue := values[pivot]
+	values[pivot], values[right] = values[right], values[pivot]
+	store := left
+	for i := left; i < right; i++ {
+		if values[i] < pivotValue {
+			values[store], values[i] = values[i], values[store]
+			store++
+		}
+	}
+	values[right], values[store] = values[store], values[right]
+	return store
 }
 
 func MorphOpen(mask Mask, kernel []image.Point) Mask {
