@@ -183,14 +183,21 @@ func (m *OnnxModel) resolveImageInput(image utils.ModelImage) (map[string]ort.Va
 	return map[string]ort.Value{name: inputTensor}, nil
 }
 
+func scaleClicksFromOriginal(clicks []utils.Click, resizedHW, origHW [2]int) (float32, float32) {
+	if origHW[1] <= 0 || origHW[0] <= 0 || resizedHW[1] <= 0 || resizedHW[0] <= 0 {
+		return 1, 1
+	}
+	return float32(resizedHW[1]) / float32(origHW[1]), float32(resizedHW[0]) / float32(origHW[0])
+}
+
 func (m *OnnxModel) resolvePointsInputs(clicks []utils.Click, resizedHW, origHW [2]int) map[string]ort.Value {
 	if len(clicks) == 0 {
 		return map[string]ort.Value{}
 	}
 	points := make([]float32, 0, len(clicks)*2)
 	labels := make([]int64, 0, len(clicks))
-	scaleX := float32(resizedHW[1]) / float32(origHW[1])
-	scaleY := float32(resizedHW[0]) / float32(origHW[0])
+	scaleX, scaleY := scaleClicksFromOriginal(clicks, resizedHW, origHW)
+	log.Printf("prompt clicks=%d coord_space=original scale=(%.4f,%.4f)", len(clicks), scaleX, scaleY)
 	for _, c := range clicks {
 		points = append(points, float32(c.X)*scaleX, float32(c.Y)*scaleY)
 		labels = append(labels, int64(c.Label))
@@ -378,10 +385,15 @@ func shapeElements(shape []int64) int {
 }
 
 func (m *OnnxModel) destroyValues(values map[string]ort.Value) {
+	seen := make(map[ort.Value]struct{}, len(values))
 	for _, v := range values {
 		if v == nil {
 			continue
 		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
 		if err := v.Destroy(); err != nil {
 			log.Printf("failed to destroy onnx value: %v", err)
 		}
