@@ -10,7 +10,7 @@ from utils import (
     PlanResult,
     binarize_mask,
     fill_small_holes,
-    inscribed_center,
+    connected_component_centroid,
     largest_connected_component,
 )
 
@@ -18,7 +18,7 @@ from utils import (
 def compute_faz_center(faz_mask: np.ndarray) -> Tuple[int, int]:
     faz_bin = binarize_mask(faz_mask)
     faz_lcc = largest_connected_component(faz_bin)
-    return inscribed_center(faz_lcc)
+    return connected_component_centroid(faz_lcc)
 
 
 def generate_ring_points(
