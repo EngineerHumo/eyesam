@@ -12,7 +12,7 @@ from utils import (
     ModelImage,
     binarize_mask,
     fill_small_holes,
-    inscribed_center,
+    connected_component_centroid,
     largest_connected_component,
     prepare_image_for_model,
     remove_small_components,
@@ -94,7 +94,7 @@ class SurgicalPipeline:
 
         area_bin = binarize_mask(area_display_mask)
         area_lcc = largest_connected_component(area_bin)
-        click0 = inscribed_center(area_lcc)
+        click0 = connected_component_centroid(area_lcc)
         LOGGER.info("auto_click0=(%d,%d)", click0[0], click0[1])
 
         resized_hw = (first_image.resized_np.shape[0], first_image.resized_np.shape[1])
@@ -108,7 +108,7 @@ class SurgicalPipeline:
         for idx in range(4):
             prev_bin = binarize_mask(current_result.mask)
             prev_lcc = largest_connected_component(prev_bin)
-            current_click_raw = inscribed_center(prev_lcc)
+            current_click_raw = connected_component_centroid(prev_lcc)
             mask_h, mask_w = current_result.mask.shape
             scale_x_first = first_image.original_pil.width / mask_w
             scale_y_first = first_image.original_pil.height / mask_h
@@ -148,7 +148,8 @@ class SurgicalPipeline:
                 remaining = area_bin * (1 - scheme_union) * (1 - rejected_union)
                 if self._mask_area(remaining) == 0:
                     break
-                new_center = inscribed_center(remaining)
+                remaining_lcc = largest_connected_component(remaining)
+                new_center = connected_component_centroid(remaining_lcc)
                 LOGGER.info("auto_scheme_click=(%d,%d)", new_center[0], new_center[1])
                 candidate_result, candidate_click = self._run_first_with_click(
                     first_image, resized_hw, new_center

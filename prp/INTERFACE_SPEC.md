@@ -55,7 +55,7 @@
 - `scheme_{i}_mask.npy`：若干初始 mask。
 - `scheme_{i}_logits.npy`：每个 mask 对应的 logits。
 - `scheme_{i}_clicks.json`：每个 mask 对应的点击点。
-- `planning_center.json`：规划中心点（FAZ 最大连通区域最大内接圆圆心）。
+- `planning_center.json`：规划中心点（FAZ 最大连通区域质心）。
 - `area_mask.npy`：手术区域约束 mask（用于后续 area 约束）。
 - `faz_mask.npy`：FAZ mask。
 - `state.json`：图像路径与分辨率。
