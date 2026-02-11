@@ -213,15 +213,6 @@ func ConnectedComponentCentroid(mask Mask) image.Point {
 			bestX = x
 			bestY = y
 		}
-		x := idx % largest.Width
-		y := idx / largest.Width
-		sumX += x
-		sumY += y
-		count++
-	}
-	if count == 0 {
-		log.Printf("Largest component is empty, fallback to image center")
-		return image.Point{X: mask.Width / 2, Y: mask.Height / 2}
 	}
 	return image.Point{X: bestX, Y: bestY}
 }
