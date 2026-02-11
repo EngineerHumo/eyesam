@@ -160,7 +160,7 @@ func MaskArea(mask Mask) int {
 	return area
 }
 
-func InscribedCenter(mask Mask) image.Point {
+func ConnectedComponentCentroid(mask Mask) image.Point {
 	if mask.Width == 0 || mask.Height == 0 {
 		return image.Point{}
 	}
@@ -175,18 +175,46 @@ func InscribedCenter(mask Mask) image.Point {
 		log.Printf("Mask is empty, fallback to image center")
 		return image.Point{X: mask.Width / 2, Y: mask.Height / 2}
 	}
-	dist, _ := distanceTransform(mask)
-	maxIdx := 0
-	maxDist := float32(-1)
-	for i, v := range dist {
-		if v > maxDist {
-			maxDist = v
-			maxIdx = i
+	largest := LargestConnectedComponent(Binarize(mask, 1))
+	var sumX, sumY, count int
+	for idx, v := range largest.Data {
+		if v == 0 {
+			continue
+		}
+		x := idx % largest.Width
+		y := idx / largest.Width
+		sumX += x
+		sumY += y
+		count++
+	}
+	if count == 0 {
+		log.Printf("Largest component is empty, fallback to image center")
+		return image.Point{X: mask.Width / 2, Y: mask.Height / 2}
+	}
+	cx := int(math.RoundToEven(float64(sumX) / float64(count)))
+	cy := int(math.RoundToEven(float64(sumY) / float64(count)))
+	if largest.At(cx, cy) > 0 {
+		return image.Point{X: cx, Y: cy}
+	}
+
+	bestX, bestY := mask.Width/2, mask.Height/2
+	bestDist := int64(1 << 62)
+	for idx, v := range largest.Data {
+		if v == 0 {
+			continue
+		}
+		x := idx % largest.Width
+		y := idx / largest.Width
+		dx := int64(x - cx)
+		dy := int64(y - cy)
+		d := dx*dx + dy*dy
+		if d < bestDist {
+			bestDist = d
+			bestX = x
+			bestY = y
 		}
 	}
-	x := maxIdx % mask.Width
-	y := maxIdx / mask.Width
-	return image.Point{X: x, Y: y}
+	return image.Point{X: bestX, Y: bestY}
 }
 
 type ComponentStats struct {

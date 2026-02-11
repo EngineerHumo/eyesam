@@ -68,7 +68,7 @@ func (p *Pipeline) RunInitial(img image.Image, progress func(int)) (Result, erro
 
 	areaBin := utils.Binarize(areaMask, 1)
 	areaLcc := utils.LargestConnectedComponent(areaBin)
-	click0 := utils.InscribedCenter(areaLcc)
+	click0 := utils.ConnectedComponentCentroid(areaLcc)
 	logger.Info("auto_click0:", "x", click0.X, "y", click0.Y)
 
 	resizedHW := [2]int{firstImage.Resized.Bounds().Dy(), firstImage.Resized.Bounds().Dx()}
@@ -86,7 +86,7 @@ func (p *Pipeline) RunInitial(img image.Image, progress func(int)) (Result, erro
 	for idx := 0; idx < 4; idx++ {
 		prevBin := utils.Binarize(currentResult.Mask, 1)
 		prevLcc := utils.LargestConnectedComponent(prevBin)
-		center := utils.InscribedCenter(prevLcc)
+		center := utils.ConnectedComponentCentroid(prevLcc)
 		maskH := currentResult.Mask.Height
 		maskW := currentResult.Mask.Width
 		scaleX := float64(firstImage.Original.Bounds().Dx()) / float64(maskW)
@@ -129,7 +129,8 @@ func (p *Pipeline) RunInitial(img image.Image, progress func(int)) (Result, erro
 			if utils.MaskArea(remaining) == 0 {
 				break
 			}
-			center := utils.InscribedCenter(remaining)
+			remainingLcc := utils.LargestConnectedComponent(remaining)
+			center := utils.ConnectedComponentCentroid(remainingLcc)
 			logger.Info("auto_scheme_click=(%d,%d)", center.X, center.Y)
 			candidate, candidateClick, err := p.runFirstWithClick(firstImage, resizedHW, center)
 			if err != nil {

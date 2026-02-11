@@ -130,16 +130,30 @@ def largest_connected_component(mask: np.ndarray) -> np.ndarray:
     return (labels == largest_index).astype(np.uint8)
 
 
-def inscribed_center(mask: np.ndarray) -> Tuple[int, int]:
+def connected_component_centroid(mask: np.ndarray) -> Tuple[int, int]:
     if mask.ndim != 2:
         raise ValueError("mask must be 2D")
     if mask.max() == 0:
         h, w = mask.shape
         LOGGER.warning("Mask is empty, fallback to image center")
         return w // 2, h // 2
-    dist = cv2.distanceTransform(mask.astype(np.uint8), cv2.DIST_L2, 0)
-    y, x = np.unravel_index(np.argmax(dist), dist.shape)
-    return int(x), int(y)
+    largest = largest_connected_component((mask > 0).astype(np.uint8))
+    ys, xs = np.where(largest > 0)
+    if len(xs) == 0:
+        h, w = mask.shape
+        LOGGER.warning("Largest component is empty, fallback to image center")
+        return w // 2, h // 2
+
+    x = int(np.rint(xs.mean()))
+    y = int(np.rint(ys.mean()))
+    if largest[y, x] > 0:
+        return x, y
+
+    deltas_x = xs.astype(np.int64) - x
+    deltas_y = ys.astype(np.int64) - y
+    distances = deltas_x * deltas_x + deltas_y * deltas_y
+    nearest_idx = int(np.argmin(distances))
+    return int(xs[nearest_idx]), int(ys[nearest_idx])
 
 
 def resize_mask(mask: np.ndarray, size: Tuple[int, int]) -> np.ndarray:
