@@ -160,7 +160,7 @@ func MaskArea(mask Mask) int {
 	return area
 }
 
-func InscribedCenter(mask Mask) image.Point {
+func ConnectedComponentCentroid(mask Mask) image.Point {
 	if mask.Width == 0 || mask.Height == 0 {
 		return image.Point{}
 	}
@@ -175,17 +175,22 @@ func InscribedCenter(mask Mask) image.Point {
 		log.Printf("Mask is empty, fallback to image center")
 		return image.Point{X: mask.Width / 2, Y: mask.Height / 2}
 	}
-	dist, _ := distanceTransform(mask)
-	maxIdx := 0
-	maxDist := float32(-1)
-	for i, v := range dist {
-		if v > maxDist {
-			maxDist = v
-			maxIdx = i
+	var sumX, sumY, count int
+	for idx, v := range mask.Data {
+		if v == 0 {
+			continue
 		}
+		x := idx % mask.Width
+		y := idx / mask.Width
+		sumX += x
+		sumY += y
+		count++
 	}
-	x := maxIdx % mask.Width
-	y := maxIdx / mask.Width
+	if count == 0 {
+		return image.Point{X: mask.Width / 2, Y: mask.Height / 2}
+	}
+	x := int(math.Round(float64(sumX) / float64(count)))
+	y := int(math.Round(float64(sumY) / float64(count)))
 	return image.Point{X: x, Y: y}
 }
 
