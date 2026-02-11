@@ -129,7 +129,8 @@ func (p *Pipeline) RunInitial(img image.Image, progress func(int)) (Result, erro
 			if utils.MaskArea(remaining) == 0 {
 				break
 			}
-			center := utils.ConnectedComponentCentroid(remaining)
+			remainingLcc := utils.LargestConnectedComponent(remaining)
+			center := utils.ConnectedComponentCentroid(remainingLcc)
 			logger.Info("auto_scheme_click=(%d,%d)", center.X, center.Y)
 			candidate, candidateClick, err := p.runFirstWithClick(firstImage, resizedHW, center)
 			if err != nil {

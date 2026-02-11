@@ -137,7 +137,12 @@ def connected_component_centroid(mask: np.ndarray) -> Tuple[int, int]:
         h, w = mask.shape
         LOGGER.warning("Mask is empty, fallback to image center")
         return w // 2, h // 2
-    ys, xs = np.where(mask > 0)
+    largest = largest_connected_component((mask > 0).astype(np.uint8))
+    ys, xs = np.where(largest > 0)
+    if len(xs) == 0:
+        h, w = mask.shape
+        LOGGER.warning("Largest component is empty, fallback to image center")
+        return w // 2, h // 2
     x = int(np.rint(xs.mean()))
     y = int(np.rint(ys.mean()))
     return x, y

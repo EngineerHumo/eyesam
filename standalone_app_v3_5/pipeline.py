@@ -148,7 +148,8 @@ class SurgicalPipeline:
                 remaining = area_bin * (1 - scheme_union) * (1 - rejected_union)
                 if self._mask_area(remaining) == 0:
                     break
-                new_center = connected_component_centroid(remaining)
+                remaining_lcc = largest_connected_component(remaining)
+                new_center = connected_component_centroid(remaining_lcc)
                 LOGGER.info("auto_scheme_click=(%d,%d)", new_center[0], new_center[1])
                 candidate_result, candidate_click = self._run_first_with_click(
                     first_image, resized_hw, new_center

@@ -175,22 +175,24 @@ func ConnectedComponentCentroid(mask Mask) image.Point {
 		log.Printf("Mask is empty, fallback to image center")
 		return image.Point{X: mask.Width / 2, Y: mask.Height / 2}
 	}
+	largest := LargestConnectedComponent(Binarize(mask, 1))
 	var sumX, sumY, count int
-	for idx, v := range mask.Data {
+	for idx, v := range largest.Data {
 		if v == 0 {
 			continue
 		}
-		x := idx % mask.Width
-		y := idx / mask.Width
+		x := idx % largest.Width
+		y := idx / largest.Width
 		sumX += x
 		sumY += y
 		count++
 	}
 	if count == 0 {
+		log.Printf("Largest component is empty, fallback to image center")
 		return image.Point{X: mask.Width / 2, Y: mask.Height / 2}
 	}
-	x := int(math.Round(float64(sumX) / float64(count)))
-	y := int(math.Round(float64(sumY) / float64(count)))
+	x := int(math.RoundToEven(float64(sumX) / float64(count)))
+	y := int(math.RoundToEven(float64(sumY) / float64(count)))
 	return image.Point{X: x, Y: y}
 }
 
