@@ -143,9 +143,17 @@ def connected_component_centroid(mask: np.ndarray) -> Tuple[int, int]:
         h, w = mask.shape
         LOGGER.warning("Largest component is empty, fallback to image center")
         return w // 2, h // 2
+
     x = int(np.rint(xs.mean()))
     y = int(np.rint(ys.mean()))
-    return x, y
+    if largest[y, x] > 0:
+        return x, y
+
+    deltas_x = xs.astype(np.int64) - x
+    deltas_y = ys.astype(np.int64) - y
+    distances = deltas_x * deltas_x + deltas_y * deltas_y
+    nearest_idx = int(np.argmin(distances))
+    return int(xs[nearest_idx]), int(ys[nearest_idx])
 
 
 def resize_mask(mask: np.ndarray, size: Tuple[int, int]) -> np.ndarray:

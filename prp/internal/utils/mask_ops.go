@@ -191,9 +191,39 @@ func ConnectedComponentCentroid(mask Mask) image.Point {
 		log.Printf("Largest component is empty, fallback to image center")
 		return image.Point{X: mask.Width / 2, Y: mask.Height / 2}
 	}
-	x := int(math.RoundToEven(float64(sumX) / float64(count)))
-	y := int(math.RoundToEven(float64(sumY) / float64(count)))
-	return image.Point{X: x, Y: y}
+	cx := int(math.RoundToEven(float64(sumX) / float64(count)))
+	cy := int(math.RoundToEven(float64(sumY) / float64(count)))
+	if largest.At(cx, cy) > 0 {
+		return image.Point{X: cx, Y: cy}
+	}
+
+	bestX, bestY := mask.Width/2, mask.Height/2
+	bestDist := int64(1 << 62)
+	for idx, v := range largest.Data {
+		if v == 0 {
+			continue
+		}
+		x := idx % largest.Width
+		y := idx / largest.Width
+		dx := int64(x - cx)
+		dy := int64(y - cy)
+		d := dx*dx + dy*dy
+		if d < bestDist {
+			bestDist = d
+			bestX = x
+			bestY = y
+		}
+		x := idx % largest.Width
+		y := idx / largest.Width
+		sumX += x
+		sumY += y
+		count++
+	}
+	if count == 0 {
+		log.Printf("Largest component is empty, fallback to image center")
+		return image.Point{X: mask.Width / 2, Y: mask.Height / 2}
+	}
+	return image.Point{X: bestX, Y: bestY}
 }
 
 type ComponentStats struct {
