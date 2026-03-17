@@ -853,34 +853,22 @@ class MainWindow:
                 center_map.setdefault(center, []).append(idx)
 
         for center, indices in center_map.items():
-            count = len(indices)
-            for offset_idx, scheme_idx in enumerate(indices):
-                color = self.schemes[scheme_idx].color
-                alpha = 255
-                width = 2
-                if self.selected_scheme_index is not None:
-                    if scheme_idx != self.selected_scheme_index:
-                        alpha = 128
-                    else:
-                        width = 3
-                dx, dy = self._shared_offset(count, offset_idx)
-                x = center[0] + dx
-                y = center[1] + dy
-                draw.ellipse(
-                    (x - circle_radius, y - circle_radius, x + circle_radius, y + circle_radius),
-                    outline=(color[0], color[1], color[2], alpha),
-                    width=width,
-                )
+            scheme_idx = min(indices)
+            color = self.schemes[scheme_idx].color
+            alpha = 255
+            width = 2
+            if self.selected_scheme_index is not None:
+                if scheme_idx != self.selected_scheme_index:
+                    alpha = 128
+                else:
+                    width = 3
+            x, y = center
+            draw.ellipse(
+                (x - circle_radius, y - circle_radius, x + circle_radius, y + circle_radius),
+                outline=(color[0], color[1], color[2], alpha),
+                width=width,
+            )
         self._render_overlay(base.convert("RGB"))
-
-    def _shared_offset(self, count: int, index: int) -> Tuple[int, int]:
-        if count <= 1:
-            return 0, 0
-        angle = 2 * np.pi * index / count
-        offset = 4
-        dx = int(round(offset * np.cos(angle)))
-        dy = int(round(offset * np.sin(angle)))
-        return dx, dy
 
     def _render_current_plan(self) -> None:
         if self.schemes:
